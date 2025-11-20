@@ -27,6 +27,81 @@ router = Router()
 logger = getLogger(__name__)
 
 
+def split_markdown_message(text: str, limit: int = 3500) -> list[str]:
+    """
+    Split MarkdownV2 text into chunks below limit, trying to cut on paragraph/line boundaries.
+    Avoid cutting inside italic spans (*...*) and avoid leaving trailing backslashes.
+    """
+    chunks: list[str] = []
+    current: str = ""
+
+    def find_split_position(block: str) -> int:
+        if len(block) <= limit:
+            return len(block)
+
+        # ranges of italic spans to avoid splitting inside
+        italic_spans: list[tuple[int, int]] = []
+        start = 0
+        while True:
+            open_idx = block.find("*", start)
+            if open_idx == -1 or (open_idx > 0 and block[open_idx - 1] == "\\"):
+                break
+            close_idx = block.find("*", open_idx + 1)
+            while close_idx != -1 and block[close_idx - 1] == "\\":
+                close_idx = block.find("*", close_idx + 1)
+            if close_idx == -1:
+                break
+            italic_spans.append((open_idx, close_idx))
+            start = close_idx + 1
+
+        split_at = block.rfind(" ", 0, limit)
+        if split_at <= 0:
+            split_at = limit
+
+        def inside_italic(pos: int) -> bool:
+            for s, e in italic_spans:
+                if s < pos < e:
+                    return True
+            return False
+
+        if inside_italic(split_at):
+            # move split before the italic span
+            spans_before = [span for span in italic_spans if span[0] < split_at]
+            if spans_before:
+                target = spans_before[-1][0]
+                split_at = block.rfind(" ", 0, target)
+                if split_at <= 0:
+                    split_at = target
+
+        # avoid ending with a lone backslash
+        while split_at > 0 and block[split_at - 1] == "\\":
+            split_at -= 1
+
+        if split_at <= 0:
+            split_at = limit
+        return split_at
+
+    for paragraph in text.split("\n\n"):
+        candidate = paragraph if not current else current + "\n\n" + paragraph
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+
+        if current:
+            chunks.append(current)
+        current = paragraph
+
+        while len(current) > limit:
+            split_at = find_split_position(current)
+            chunks.append(current[:split_at].rstrip())
+            current = current[split_at:].lstrip("\n ")
+
+    if current:
+        chunks.append(current)
+
+    return chunks
+
+
 @router.message(AIState.IN_AI_DIALOG, F.text)
 async def ai_assistant_text_handler(
     message: Message,
@@ -62,8 +137,12 @@ async def ai_assistant_text_handler(
             return
 
         cleaned_response = refactor_string(response)
-        msg_answer = await message.answer(cleaned_response, parse_mode=ParseMode.MARKDOWN_V2)
-        await msg_answer.forward(settings.bot.CHAT_LOG_ID)
+        sent_messages = []
+        for chunk in split_markdown_message(cleaned_response):
+            msg_answer = await message.answer(chunk, parse_mode=ParseMode.MARKDOWN_V2)
+            sent_messages.append(msg_answer)
+        for msg in sent_messages:
+            await msg.forward(settings.bot.CHAT_LOG_ID)
     if not user.is_subscribed and user.tg_id not in settings.bot.ADMINS:
         user.action_count += 1
     db_session.add(user)
@@ -96,8 +175,12 @@ async def ai_assistant_voice_handler(
         if response is None:
             return
         cleaned_response = refactor_string(response)
-        msg_answer = await message.answer(cleaned_response, parse_mode=ParseMode.MARKDOWN_V2)
-        await msg_answer.forward(settings.bot.CHAT_LOG_ID)
+        sent_messages = []
+        for chunk in split_markdown_message(cleaned_response):
+            msg_answer = await message.answer(chunk, parse_mode=ParseMode.MARKDOWN_V2)
+            sent_messages.append(msg_answer)
+        for msg in sent_messages:
+            await msg.forward(settings.bot.CHAT_LOG_ID)
     if not user.is_subscribed and user.tg_id not in settings.bot.ADMINS:
         user.action_count += 1
     db_session.add(user)
@@ -169,8 +252,12 @@ async def ai_assistant_photo_handler(
                 return
 
             cleaned_response = refactor_string(response)
-            msg_answer = await message.answer(cleaned_response, parse_mode=ParseMode.MARKDOWN_V2)
-            await msg_answer.forward(settings.bot.CHAT_LOG_ID)
+            sent_messages = []
+            for chunk in split_markdown_message(cleaned_response):
+                msg_answer = await message.answer(chunk, parse_mode=ParseMode.MARKDOWN_V2)
+                sent_messages.append(msg_answer)
+            for msg in sent_messages:
+                await msg.forward(settings.bot.CHAT_LOG_ID)
 
         except BadRequestError as e:
             logger.exception(f"OpenAI API Error: {e}")
