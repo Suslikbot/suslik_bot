@@ -58,7 +58,8 @@ async def subscription_handler(
     db_session: AsyncSession,
 ):
     await callback.answer()
-    date = user.expired_at.strftime("%d.%m.%Y")
+    if user.expired_at:
+        date = user.expired_at.strftime("%d.%m.%Y")
     match callback_data.action:
         case SubscriptionAction.CANCEL_SUB_DIALOG:
             await callback.message.answer(
