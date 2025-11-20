@@ -54,12 +54,32 @@ async def yookassa_webhook(
     storage = RedisStorage(redis_client)
     try:
         payload = await request.json()
-        logger.info(f"YooKassa webhook received: {payload}")
+        logger.info(
+            "YooKassa webhook received",
+            extra={
+                "event_type": payload.get("event"),
+                "object_id": payload.get("object", {}).get("id"),
+                "status": payload.get("object", {}).get("status"),
+            },
+        )
         data = YooKassaEvent(**payload)
-        entity = data.object.get("metadata").get("entity")
-        payment_type = data.object.get("metadata").get("payment_type")
+        metadata = data.object.get("metadata") or {}
+        entity = metadata.get("entity")
+        payment_type = metadata.get("payment_type")
         payment: Payment = await get_payment_from_db(data.object.get("id"), db_session)
         user: User = await get_user_from_db_by_tg_id(payment.user_tg_id, db_session)
+
+        logger.info(
+            "Parsed webhook payload",
+            extra={
+                "event": data.event,
+                "entity": entity,
+                "payment_type": payment_type,
+                "telegram_id": user.tg_id,
+                "payment_id": payment.payment_id,
+                "status": data.object.get("status"),
+            },
+        )
 
         if data.event == "payment.succeeded":
             if data.object.get("status") == "succeeded" and data.object.get("paid"):
@@ -92,7 +112,7 @@ async def yookassa_webhook(
                 dutation = (
                     relativedelta(months=1) if entity == PaidEntity.ONE_MONTH_SUBSCRIPTION else relativedelta(years=1)
                 )
-                await update_user_expiration(user, dutation, db_session)
+                new_expired_at = await update_user_expiration(user, dutation, db_session)
                 if not payment_type:
                     user.is_autopayment_enabled = True
                     user.subscription_duration = entity
@@ -103,9 +123,26 @@ async def yookassa_webhook(
                         ),
                         caption=text,
                     )
-                    logger.info(f"Successful payment for user {user.username}: {entity}")
+                    logger.info(
+                        "Successful payment",
+                        extra={
+                            "username": user.username,
+                            "telegram_id": user.tg_id,
+                            "entity": entity,
+                            "expire_at": new_expired_at.isoformat() if new_expired_at else None,
+                            "autopayment_enabled": True,
+                        },
+                    )
                 else:
-                    logger.info(f"Successful recurrent payment for user {user.username}: {entity}")
+                    logger.info(
+                        "Successful recurrent payment",
+                        extra={
+                            "username": user.username,
+                            "telegram_id": user.tg_id,
+                            "entity": entity,
+                            "expire_at": new_expired_at.isoformat() if new_expired_at else None,
+                        },
+                    )
                 await fsm_context.set_data({})
             elif entity == PaidEntity.PICTURES_COUNTER_REFRESH:
                 await reset_user_image_counter(payment.user_tg_id, db_session)
@@ -114,7 +151,14 @@ async def yookassa_webhook(
                     FSInputFile(path="src/bot/data/taking_photo.png"),
                     caption=payment_text["refresh_pictures_limit_success"],
                 )
-                logger.info(f"Successful payment for user {user.username}: {entity.replace('_', ' ')}")
+                logger.info(
+                    "Refreshed picture limit after payment",
+                    extra={
+                        "username": user.username,
+                        "telegram_id": user.tg_id,
+                        "entity": entity,
+                    },
+                )
             await fsm_context.set_state(AIState.IN_AI_DIALOG)
         elif data.event == "payment.canceled":
             await bot.send_message(
@@ -128,9 +172,32 @@ async def yookassa_webhook(
             )
             user.is_autopayment_enabled = False
 
+            logger.warning(
+                "Payment canceled",
+                extra={
+                    "username": user.username,
+                    "telegram_id": user.tg_id,
+                    "entity": entity,
+                    "status": data.object.get("status"),
+                    "reason": data.object.get("cancellation_details"),
+                },
+            )
+        else:
+            logger.info(
+                "Unhandled webhook event type",
+                extra={"event": data.event, "object_id": data.object.get("id")},
+            )
+
         db_session.add(user)
         await db_session.commit()
-        logger.info(f"Parsed event: {data.type} {data.event}")
+        logger.info(
+            "Webhook processing finished",
+            extra={
+                "event": data.event,
+                "payment_id": payment.payment_id,
+                "telegram_id": user.tg_id,
+            },
+        )
     except ValidationError as ve:
         logger.error(f"Payload validation error: {ve}")
     except Exception as e:
