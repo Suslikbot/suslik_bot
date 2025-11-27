@@ -33,20 +33,22 @@ async def command_handler(
 ) -> None:
     match command.command:
         case "start":
-            start_file_path = "src/bot/data/start.png"
-            await message.answer_photo(
-                FSInputFile(path=start_file_path),
-            )
+            # start_file_path = "src/bot/data/start.png"
+            # await message.answer_photo(
+            #    FSInputFile(path=start_file_path),
+            #)
             async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
                 if not user.is_context_added:
                     await sleep(1)
                     await message.answer(replies[0].format(fullname=user.fullname))
-                    random_index = randint(0, 9)
-                    await state.update_data(question_index=random_index)
+                    # random_index = randint(0, 9)
+                    # await state.update_data(question_index=random_index)
+                    # await imitate_typing()
+                    # field, question = await ask_next_question(user, random_index)
+                    # await state.set_state(getattr(Form, field))
+                    # await message.answer(question)
                     await imitate_typing()
-                    field, question = await ask_next_question(user, random_index)
-                    await state.set_state(getattr(Form, field))
-                    await message.answer(question)
+                    await state.set_state(AIState.IN_AI_DIALOG)
                 else:
                     await sleep(1)
                     await message.answer(replies[1].format(fullname=user.fullname))
