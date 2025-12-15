@@ -17,6 +17,11 @@ from bot.internal.enums import AIState, Form
 from bot.internal.keyboards import cancel_autopayment_kb, subscription_kb
 from bot.internal.lexicon import replies, support_text
 from database.models import User, UserCounters
+from sqlalchemy import select
+
+
+
+
 
 router = Router()
 logger = getLogger(__name__)
@@ -77,3 +82,98 @@ async def command_handler(
                 )
         case "share":
             await message.answer("Выберите, кому хотите подарить подписку", reply_markup=contact_kb)
+
+
+@router.message(Command("broadcast"))
+async def broadcast_handler(
+    message: Message,
+    command: CommandObject,
+    settings: Settings,
+    db_session: AsyncSession,
+) -> None:
+    if message.from_user.id not in settings.bot.ADMINS:
+        await message.answer("❌ У вас нет прав на рассылку")
+        return
+
+    text = command.args
+    if not text:
+        await message.answer(
+            "Использование:\n"
+            "<code>/broadcast текст сообщения</code>"
+        )
+        return
+
+    result = await db_session.execute(
+        select(User.tg_id)
+    )
+    user_ids: list[int] = result.scalars().all()
+
+    if not user_ids:
+        await message.answer("Пользователи не найдены")
+        return
+
+    sent = 0
+    failed = 0
+
+    for user_id in user_ids:
+        try:
+            await message.bot.send_message(user_id, text)
+            sent += 1
+            await sleep(0.05)
+        except Exception:
+            failed += 1
+
+    await message.answer(
+        "📢 <b>Рассылка завершена</b>\n\n"
+        f"👥 Всего пользователей: {len(user_ids)}\n"
+        f"✅ Отправлено: {sent}\n"
+        f"❌ Ошибок: {failed}"
+    )
+
+@router.message(Command("broadcast_photo"))
+async def broadcast_photo_handler(
+    message: Message,
+    settings: Settings,
+    db_session: AsyncSession,
+) -> None:
+    if message.from_user.id not in settings.bot.ADMINS:
+        await message.answer("❌ У вас нет прав на рассылку")
+        return
+
+    if not message.reply_to_message or not message.reply_to_message.photo:
+        await message.answer(
+            "Использование:\n"
+            "Ответьте командой <code>/broadcast_photo</code> "
+            "на сообщение с картинкой"
+        )
+        return
+
+    photo = message.reply_to_message.photo[-1]
+    caption = message.reply_to_message.caption or ""
+
+    result = await db_session.execute(
+        select(User.tg_id)
+    )
+    user_ids = result.scalars().all()
+
+    sent = 0
+    failed = 0
+
+    for user_id in user_ids:
+        try:
+            await message.bot.send_photo(
+                chat_id=user_id,
+                photo=photo.file_id,
+                caption=caption,
+            )
+            sent += 1
+            await sleep(0.05)
+        except Exception:
+            failed += 1
+
+    await message.answer(
+        "📢 <b>Рассылка с картинкой завершена</b>\n\n"
+        f"👥 Всего: {len(user_ids)}\n"
+        f"✅ Отправлено: {sent}\n"
+        f"❌ Ошибок: {failed}"
+    )
