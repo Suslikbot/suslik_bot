@@ -8,8 +8,12 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
     KeyboardButton
 )
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from logging import getLogger
 
+from aiogram import Router
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+router = Router()
+logger = getLogger(__name__)
 
 async def onboarding_1(
     message,
@@ -83,6 +87,8 @@ async def onboarding_3(
     Form,
     AIState,
 ):
+    logger.error("🔥 ONBOARDING_3 CALLED 🔥")
+
     text = (
         "Я твой карманный эксперт по растениям: вижу их состояние, "
         "нахожу болезни и знаю, как помочь им расти быстрее и лучше.\n\n"

@@ -38,6 +38,7 @@ async def command_handler(
     db_session: AsyncSession,
 ) -> None:
     print("тут-1")
+    logger.error("🔥 COMMAND_HANDLER ENTERED 🔥")
     match command.command:
         case "start":
             variant = "onboarding_3"  # Change onboarding
