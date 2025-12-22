@@ -485,7 +485,7 @@ openai_client=None):
     if user.ai_thread:
         await openai_client.delete_thread(user.ai_thread)
         user.ai_thread = None
-    user.action_count = 3
+    user.action_count += 3
     await db_session.commit()
 
     # 2️⃣ Переводим в основной режим
