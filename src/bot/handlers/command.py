@@ -18,6 +18,7 @@ from bot.internal.keyboards import cancel_autopayment_kb, subscription_kb
 from bot.internal.lexicon import replies, support_text
 from database.models import User, UserCounters
 from sqlalchemy import select
+from bot.onboarding.start_variants import ONBOARDING_VARIANTS
 
 
 
@@ -38,30 +39,41 @@ async def command_handler(
 ) -> None:
     match command.command:
         case "start":
-            # start_file_path = "src/bot/data/start.png"
-            # await message.answer_photo(
-            #    FSInputFile(path=start_file_path),
-            #)
+            variant = "onboarding_3"  # Change onboarding
+
+            await ONBOARDING_VARIANTS[variant](
+                message=message,
+                state=state,
+                user=user,
+                db_session=db_session,
+                replies=replies,
+                ask_next_question=ask_next_question,
+                imitate_typing=imitate_typing,
+                Form=Form,
+                AIState=AIState,
+            )
+            '''start_file_path = "src/bot/data/start.png"
+            await message.answer_photo(
+              FSInputFile(path=start_file_path) )
             async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
                 if not user.is_context_added:
                     await sleep(1)
                     await message.answer(replies[0].format(fullname=user.fullname))
-                    # random_index = randint(0, 9)
-                    # await state.update_data(question_index=random_index)
-                    # await imitate_typing()
-                    # field, question = await ask_next_question(user, random_index)
-                    # await state.set_state(getattr(Form, field))
-                    # await message.answer(question)
+                    random_index = randint(0, 9)
+                    await state.update_data(question_index=random_index)
                     await imitate_typing()
-                    await state.set_state(AIState.IN_AI_DIALOG)
+                    field, question = await ask_next_question(user, random_index)
+                    await state.set_state(getattr(Form, field))
+                    await message.answer(question)
                 else:
                     await sleep(1)
                     await message.answer(replies[1].format(fullname=user.fullname))
-                    # user.is_context_added = True
-                    # db_session.add(user)
-                    # await db_session.flush()
+                    user.is_context_added = True
+                    db_session.add(user)
+                    await db_session.flush()
                     await imitate_typing()
-                    await state.set_state(AIState.IN_AI_DIALOG)
+                    await state.set_state(AIState.IN_AI_DIALOG) '''
+
         case "support":
             picture = FSInputFile(path="src/bot/data/with_book.png")
             if user.is_subscribed and user.expired_at and user.expired_at > datetime.now(user.expired_at.tzinfo):

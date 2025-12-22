@@ -191,3 +191,15 @@ async def on_successful_payment(
         ),
     )
     logger.info(f"Successful gift subscription from {user.fullname} to {target_user.fullname}")
+
+
+import re
+
+def extract_health_score(text: str) -> int | None:
+    """
+    Ищет 'Health Score: ... X/10'
+    """
+    match = re.search(r'(\d{1,2})/10', text)
+    if not match:
+        return None
+    return int(match.group(1))

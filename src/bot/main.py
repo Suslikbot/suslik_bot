@@ -8,6 +8,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from redis.asyncio import Redis
 from yookassa import Configuration
+from bot.handlers.onboarding_callbacks import router as onboarding_callbacks_router
 
 from bot.ai_client import AIClient
 from bot.config import get_settings
@@ -76,7 +77,9 @@ async def main():
         commands_router,
         payment_router,
         base_router,
+        onboarding_callbacks_router,
         ai_router,
+        # onboarding_callbacks_router,
         error_router,
     )
     # noinspection PyUnusedLocal

@@ -11,7 +11,10 @@ class Form(StatesGroup):
 
 class AIState(StatesGroup):
     IN_AI_DIALOG = State()
-
+    WAITING_HOME_TIME = State()
+    WAITING_CONFIRM_HOME = State()
+    WAITING_PLANT_PHOTO = State()
+    WAITING_CITY = State()
 
 class PaidEntity(StrEnum):
     ONE_MONTH_SUBSCRIPTION = auto()

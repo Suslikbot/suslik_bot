@@ -12,7 +12,7 @@ class CustomFormatter(logging.Formatter):
         ct = datetime.fromtimestamp(record.created).astimezone()
         if datefmt:
             base_time = ct.strftime("%d.%m.%Y %H:%M:%S")
-            msecs = f"{int(record.msecs):03d}"
+            msecs = f"{int(record.msecs):03d}М"
             tz = ct.strftime("%z")
             return f"{base_time}.{msecs}{tz}"
         return super().formatTime(record, datefmt)
