@@ -37,10 +37,11 @@ async def command_handler(
     state: FSMContext,
     db_session: AsyncSession,
 ) -> None:
+    print("тут-1")
     match command.command:
         case "start":
             variant = "onboarding_3"  # Change onboarding
-
+            print("тут-2")
             await ONBOARDING_VARIANTS[variant](
                 message=message,
                 state=state,

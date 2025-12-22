@@ -101,7 +101,7 @@ async def onboarding_3(
 
     await imitate_typing()
 
-    await state.set_state(AIState.IN_AI_DIALOG)
+    # await state.set_state(AIState.IN_AI_DIALOG)
 
 
 ONBOARDING_VARIANTS = {
