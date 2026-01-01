@@ -15,7 +15,7 @@ from bot.controllers.base import imitate_typing
 from bot.controllers.user import ask_next_question, get_user_counter
 from bot.internal.enums import AIState, Form
 from bot.internal.keyboards import cancel_autopayment_kb, subscription_kb
-from bot.internal.lexicon import replies, support_text
+from bot.internal.lexicon import replies, support_text, WELCOME_BY_SOURCE
 from database.models import User, UserCounters
 from sqlalchemy import select
 from bot.onboarding.start_variants import ONBOARDING_VARIANTS
@@ -37,12 +37,21 @@ async def command_handler(
     state: FSMContext,
     db_session: AsyncSession,
 ) -> None:
-    print("тут-1")
     logger.error("🔥 COMMAND_HANDLER ENTERED 🔥")
     match command.command:
         case "start":
+            source = user.source or "default"
+            cfg = WELCOME_BY_SOURCE.get(source, WELCOME_BY_SOURCE["default"])
+
+            # 1) фото (если есть)
+            if cfg.get("photo"):
+                await message.answer_photo(FSInputFile(cfg["photo"]))
+
+            # 2) текст (если есть)
+            if cfg.get("text"):
+                await message.answer(cfg["text"].format(fullname=user.fullname))
+
             variant = "onboarding_3"  # Change onboarding
-            print("тут-2")
             await ONBOARDING_VARIANTS[variant](
                 message=message,
                 state=state,
