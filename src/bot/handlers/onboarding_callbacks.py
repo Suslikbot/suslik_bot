@@ -87,9 +87,7 @@ def extract_flags(text: str) -> tuple[str | None, str | None]:
     return plant, quality
 
 def strip_flags(text: str) -> str:
-    # удаляем строки вида "PLANT: YES" и "QUALITY: BAD" целиком
     cleaned = FLAG_RE.sub("", text)
-    # убираем лишние пустые строки, которые остались после удаления
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return cleaned
 
@@ -182,16 +180,13 @@ from aiogram.types import Message, ReplyKeyboardRemove
     F.text.in_({"🏠 Через 2 часа", "🏠 Через 4 часа"})
 )
 async def handle_home_time(message: Message, state: FSMContext):
-    # 1. Определяем, сколько часов выбрал пользователь
     if "2" in message.text:
-        hours = 0.005
+        hours = 2
     else:
         hours = 4
 
-    # 2. Считаем время напоминания
     remind_at = datetime.utcnow() + timedelta(hours=hours)
 
-    # 3. Подтверждаем пользователю
     await message.answer(
         f"Отлично! Напомню через {hours} часа 😊",
         reply_markup=ReplyKeyboardRemove()
@@ -299,10 +294,6 @@ async def waiting_plant_photo_voice(message: Message):
         "Но для анализа мне нужно фото растения 📸"
     )
 
-
-
-
-
 @router.message(AIState.WAITING_PLANT_PHOTO, F.photo)
 async def handle_plant_photo(
     message: Message,
@@ -361,14 +352,6 @@ async def handle_plant_photo(
         )
         return  # остаёмся в WAITING_PLANT_PHOTO
 
-    # 🚫 Плохое качество фото
-    # if quality_flag != "GOOD":
-    #    await message.answer(
-    #        "Фото растения видно плохо 😔\n"
-    #        "Сфотографируй лист крупно при хорошем дневном свете 📸"
-    #    )
-    #    return  # остаёмся в WAITING_PLANT_PHOTO
-    # теперь фото валидное — можно работать со score
     score = extract_health_score(cleaned)
 
     # страховка, если модель сломалась
@@ -385,9 +368,6 @@ async def handle_plant_photo(
     await sleep(1)
     print("Обвал тут")
     await state.set_state(AIState.WAITING_CITY)
-
-
-
 
     if score <= 5:
         await message.answer(
@@ -434,26 +414,19 @@ async def handle_plant_photo(
 async def handle_geography(message: Message, state: FSMContext, user: User, db_session: AsyncSession):
     city = message.text.strip()
     user.geography = city
-    print("хуйня-1")
     await db_session.commit()
-    print("хуйня0")
     data = await state.get_data()
     scenario = data.get("onboarding_scenario")
 
     # DEBUG на время
     await message.answer(f"(debug) scenario={scenario}")
-    print("хуйня1")
    # await state.set_state(AIState.IN_AI_DIALOG)
 
     if scenario == "rescue":
-        print("хуйня2")
         await show_rescue_screen(message, city)
     elif scenario == "growth":
-        print("хуйня3")
         await show_growth_screen(message, city)
     else:
-        print("хуйня4")
-        # если потеряли scenario — безопасный дефолт
         await show_rescue_screen(message, city)
     await state.set_state(AIState.IN_AI_DIALOG)
 
@@ -461,21 +434,15 @@ async def handle_geography(message: Message, state: FSMContext, user: User, db_s
 async def handle_city(message: Message, state: FSMContext, user: User, db_session: AsyncSession):
     city = message.text.strip()
     user.geography = city
-    print("Хуй1")
     await db_session.commit()
-    print("Хуй2")
     data = await state.get_data()
     scenario = data.get("onboarding_scenario")
 
     if scenario == "rescue":
-        print("Хуй3")
         await show_rescue_screen(message, city)
     else:
-        print("Хуй4")
         await show_growth_screen(message, city)
-
-    # ВАЖНО: пока НЕ включаем AI диалог
-    # await state.set_state(AIState.IN_AI_DIALOG)
+    await state.set_state(AIState.IN_AI_DIALOG)
 
 @router.callback_query(F.data == "skip")
 async def handle_skip_onboarding(
@@ -484,17 +451,17 @@ async def handle_skip_onboarding(
     user: User,
     db_session: AsyncSession,
 openai_client=None):
-    # 1️⃣ Устанавливаем action_count = 3
+    #  ️Устанавливаем action_count = 3
     if user.ai_thread:
         await openai_client.delete_thread(user.ai_thread)
         user.ai_thread = None
     user.action_count += 3
     await db_session.commit()
 
-    # 2️⃣ Переводим в основной режим
+    # Переводим в основной режим
     await state.set_state(AIState.IN_AI_DIALOG)
 
-    # 3️⃣ Сообщение пользователю
+    # Сообщение пользователю
     await callback.message.answer(
         "🌱 Дорогой друг,\n\n"
         "У тебя осталось ещё 2 попытки.\n"
@@ -502,7 +469,7 @@ openai_client=None):
         "или отправить фото растения 📸"
     )
 
-    # 4️⃣ Убираем «часики» у кнопки
+    # Убираем «часики» у кнопки
     await callback.answer()
 
 from aiogram.types import Message

@@ -87,14 +87,14 @@ async def onboarding_3(
     Form,
     AIState,
 ):
-    logger.error("🔥 ONBOARDING_3 CALLED 🔥")
-
+    # await state.clear()
     text = (
         "Я твой карманный эксперт по растениям: вижу их состояние, "
         "нахожу болезни и знаю, как помочь им расти быстрее и лучше.\n\n"
         "Давай проверим любое твое растение прямо сейчас.\n"
         "Отправь мне фото (желательно при хорошем свете) 👇"
     )
+    user.is_context_added = True
     start_keyboard  = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📸 Отправить фото", callback_data="onb:send_photo")],
         [InlineKeyboardButton(text="🚫 Нет растения под рукой? Попробуй Демо", callback_data="onb:demo")]

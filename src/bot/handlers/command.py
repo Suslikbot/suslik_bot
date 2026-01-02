@@ -37,19 +37,40 @@ async def command_handler(
     state: FSMContext,
     db_session: AsyncSession,
 ) -> None:
-    logger.error("🔥 COMMAND_HANDLER ENTERED 🔥")
     match command.command:
         case "start":
             source = user.source or "default"
             cfg = WELCOME_BY_SOURCE.get(source, WELCOME_BY_SOURCE["default"])
 
-            # 1) фото (если есть)
             if cfg.get("photo"):
                 await message.answer_photo(FSInputFile(cfg["photo"]))
 
-            # 2) текст (если есть)
             if cfg.get("text"):
                 await message.answer(cfg["text"].format(fullname=user.fullname))
+
+            current_state = await state.get_state()
+
+            if user.is_context_added:
+                await state.set_state(AIState.IN_AI_DIALOG)
+                await message.answer(
+                    "Мы уже знакомы 🌿\n"
+                    "Просто задай вопрос или пришли фото растения."
+                )
+                return
+
+            if current_state in {
+                AIState.WAITING_PLANT_PHOTO,
+                AIState.WAITING_CITY,
+                Form.space,
+                Form.geography,
+                Form.request,
+            }:
+                await message.answer(
+                    "Мы уже начали 👀\n"
+                    "Продолжай — я жду твой ответ или фото."
+                )
+                return
+
 
             variant = "onboarding_3"  # Change onboarding
             await ONBOARDING_VARIANTS[variant](
