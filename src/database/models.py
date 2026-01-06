@@ -8,6 +8,8 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     func,
+    Text,
+    Column
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -67,3 +69,24 @@ class Payment(Base):
     price: Mapped[int]
     description: Mapped[str]
     is_paid: Mapped[bool] = mapped_column(BOOLEAN, default=False)
+
+# database/models/plant_analysis.py
+
+class PlantAnalysis(Base):
+    __tablename__ = "plant_analyses"
+
+    user_tg_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.tg_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+    thread_id: Mapped[str | None]
+
+    tg_file_id: Mapped[str] = mapped_column(nullable=False)
+    tg_file_unique_id: Mapped[str | None]
+
+    ai_response: Mapped[str] = mapped_column(Text, nullable=False)
+    health_score: Mapped[int | None] = mapped_column(Integer)
+

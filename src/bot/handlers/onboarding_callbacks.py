@@ -39,6 +39,13 @@ from bot.internal.enums import AIState
 from bot.internal.keyboards import refresh_pictures_kb, subscription_kb
 from bot.internal.lexicon import replies
 from database.models import User
+from database.models import PlantAnalysis
+from sqlalchemy import select, desc
+from pathlib import Path
+from aiogram.types import FSInputFile
+from bot.handlers.pdf_generator import generate_plan_pdf
+import tempfile
+
 
 router = Router()
 logger = getLogger(__name__)
@@ -59,6 +66,49 @@ PHOTO_ANALYSIS_USER_TEXT = (
     "В КОНЦЕ ответа добавь СТРОГО эти строки (без пояснений):"
     "PLANT: YES или NO"
     "QUALITY: GOOD или BAD"
+)
+PLAN_99_TEXT = ( """
+### GENERATION PROTOCOL: ONE-TIME PAID PLAN (99₽)
+
+Когда пользователь оплачивает разовый план, ты генерируешь "Персональную Карту Ухода".
+
+Стиль:
+– Строгий, медицинский (как рецепт врача)
+– Без воды и общих фраз
+– В конце — заботливый тон Суслика
+
+Структура ответа строго фиксирована:
+
+1. ЗАГОЛОВОК  
+Эмодзи (🚑 для больных / 🚀 для здоровых) +  
+Название: "Протокол Реанимации №{ID}" или "Карта Роста №{ID}"
+
+2. ПАСПОРТ ПАЦИЕНТА  
+– Название растения  
+– Оценка здоровья (Score)  
+– Основная проблема (1 строка)
+
+3. ЭТАП 1: СРОЧНЫЕ МЕРЫ (Сделать сегодня)  
+– Механическое действие  
+– Точные измеримые инструкции
+
+4. ЭТАП 2: АПТЕЧКА (Дешево и безопасно)  
+– Только 1–2 доступных средства  
+– Обязательно указать дозировку
+
+5. ЭТАП 3: ГРАФИК НА 14 ДНЕЙ  
+– Обязательно описать каждый день с 1 по 14  
+– Формат строго: "День X: ..."
+
+6. СЕКРЕТ СУСЛИКА  
+– Один неочевидный лайфхак именно для этого растения
+
+Ограничения:
+– Не использовать общие фразы
+– Не использовать дисклеймеры
+– Не использовать эмодзи вне заголовков
+– Не рекомендовать редкие или опасные вещества
+"""
 )
 
 @router.message(AIState.WAITING_PLANT_PHOTO, F.text)
@@ -100,6 +150,46 @@ def extract_flag(text: str, flag: str) -> str | None:
     match = re.search(rf"{flag}:\s*(YES|NO|GOOD|BAD)", text)
     return match.group(1) if match else None
 
+from pathlib import Path
+
+
+def response_to_blocks(text: str) -> list[str]:
+    blocks = []
+    current = []
+
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        # Заголовки этапов
+        if line[0].isdigit() and "." in line[:3]:
+            if current:
+                blocks.append("<br>".join(current))
+                current = []
+            current.append(f"<h2>{line}</h2>")
+        else:
+            current.append(line)
+
+    if current:
+        blocks.append("<br>".join(current))
+
+    return blocks
+
+
+
+
+
+
+async def get_last_thread_id(db_session: AsyncSession, user_tg_id: int) -> str | None:
+    stmt = (
+        select(PlantAnalysis.thread_id)
+        .where(PlantAnalysis.user_tg_id == user_tg_id)
+        .order_by(desc(PlantAnalysis.created_at))
+        .limit(1)
+    )
+    res = await db_session.execute(stmt)
+    return res.scalar_one_or_none()
 
 async def enter_waiting_plant_photo(message, state: FSMContext):
     await state.update_data(wait_reason="onboarding_plant_photo")
@@ -276,7 +366,7 @@ async def show_growth_screen(message: Message, city: str):
 
 RESCUE_KB = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="🚑 Начать лечение за 390₽", callback_data="pay:rescue")],
-    # [InlineKeyboardButton(text="📄 Получить план разово за 99₽", callback_data="pay:rescue_once")],
+    [InlineKeyboardButton(text="📄 Получить план разово за 99₽", callback_data="pay:rescue_once")],
     [InlineKeyboardButton(text="🙅 Оставить как есть", callback_data="skip")]
 ])
 
@@ -361,6 +451,16 @@ async def handle_plant_photo(
             "Попробуй прислать фото ещё раз при хорошем освещении 📸"
         )
         return
+    analysis = PlantAnalysis(
+        user_tg_id=user.tg_id,  # или user.id — как у тебя принято
+        thread_id=thread_id,
+        tg_file_id=photo.file_id,
+        tg_file_unique_id=photo.file_unique_id,
+        ai_response=cleaned,
+        health_score=score,
+    )
+    db_session.add(analysis)
+    await db_session.commit()
 
     scenario = "rescue" if score <= 5 else "growth"
     await state.update_data(onboarding_scenario=scenario, health_score=score)
@@ -518,3 +618,100 @@ async def handle_paywall_from_onboarding(
     )
 
     await callback.answer()
+
+async def build_rescue_plan(
+    message: Message,
+    user: User,
+    db_session: AsyncSession,
+    openai_client: AIClient,
+):
+    # 1️⃣ Берём последний анализ
+    stmt = (
+        select(PlantAnalysis)
+        .where(PlantAnalysis.user_tg_id == user.tg_id)
+        .order_by(desc(PlantAnalysis.created_at))
+        .limit(1)
+    )
+    result = await db_session.execute(stmt)
+    analysis = result.scalar_one_or_none()
+
+    if not analysis:
+        await message.answer(
+            "Я не нашёл анализа растения 🌱\n"
+            "Сначала пришли фото растения 📸"
+        )
+        return
+
+    # 2️⃣ Показываем исходные данные
+    await message.answer(
+        "Я подготовлю персональный план ухода на основе этого анализа 👇"
+    )
+
+    await message.answer_photo(
+        photo=analysis.tg_file_id,
+        caption="📸 Фото, на котором основан план"
+    )
+
+    if not analysis.thread_id:
+        await message.answer("Ошибка: не найден AI-диалог 😔")
+        return
+
+    # 3️⃣ Скачиваем изображение
+    file_info = await message.bot.get_file(analysis.tg_file_id)
+    file_bytes = await message.bot.download_file(file_info.file_path)
+    image_bytes = file_bytes.read()
+
+    # 4️⃣ OpenAI
+    response = await openai_client.get_response_with_image(
+        thread_id=analysis.thread_id,
+        text=PLAN_99_TEXT,
+        image_bytes=image_bytes,
+        message=message,
+        fullname=user.fullname,
+    )
+
+    # 5️⃣ PDF
+    tmp_dir = Path(tempfile.gettempdir())
+    pdf_path = tmp_dir / f"plan_{analysis.id}.pdf"
+
+    generate_plan_pdf(
+        response_text=response,
+        output_path=str(pdf_path),
+        title=f"Протокол Реанимации №{analysis.id}",
+    )
+
+    # 6️⃣ Отправляем пользователю
+    await message.answer_document(
+        FSInputFile(pdf_path),
+        caption="📄 Твой персональный план ухода готов 🌱"
+    )
+
+    await message.answer(response)
+
+
+
+@router.callback_query(F.data == "pay:rescue_once")
+async def recipe_analysis(
+    callback: CallbackQuery,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    openai_client: AIClient,
+):
+    # 🔹 закрываем callback МГНОВЕННО
+    await callback.answer("Готовлю план 🌱")
+
+    # 🔹 информируем пользователя
+    await callback.message.answer(
+        "Я готовлю персональный план ухода 🌿\n"
+        "Это может занять до минуты."
+    )
+
+    # 🔹 запускаем тяжёлую логику
+    await build_rescue_plan(
+        message=callback.message,
+        user=user,
+        db_session=db_session,
+        openai_client=openai_client,
+    )
+
