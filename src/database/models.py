@@ -90,3 +90,11 @@ class PlantAnalysis(Base):
     ai_response: Mapped[str] = mapped_column(Text, nullable=False)
     health_score: Mapped[int | None] = mapped_column(Integer)
 
+class OneTimePurchase(Base):
+    __tablename__ = "one_time_purchases"
+
+    id: Mapped[int]
+    user_id: Mapped[int]
+    product_code: Mapped[str]  # "RECIPE_PLAN"
+    is_consumed: Mapped[bool]  # False → True
+    created_at: Mapped[datetime]

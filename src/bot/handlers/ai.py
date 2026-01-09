@@ -161,8 +161,8 @@ async def ai_assistant_voice_handler(
     if not check_action_limit(user, settings):
         await message.forward(settings.bot.CHAT_LOG_ID)
         await message.answer_photo(
-            FSInputFile(path="src/bot/data/greetings.png"),
-            replies["action_limit_exceeded"],
+            photo = FSInputFile(path="src/bot/data/greetings.png"),
+            caption=replies["action_limit_exceeded"],
             reply_markup=subscription_kb(),
         )
         log_text = replies["action_limit_exceeded_log"].format(username=user.username)
@@ -201,8 +201,8 @@ async def ai_assistant_photo_handler(
     if not check_action_limit(user, settings):
         await message.forward(settings.bot.CHAT_LOG_ID)
         await message.answer_photo(
-            FSInputFile(path="src/bot/data/greetings.png"),
-            replies["action_limit_exceeded"],
+            photo=FSInputFile(path="src/bot/data/greetings.png"),
+            caption=replies["action_limit_exceeded"],
             reply_markup=subscription_kb(),
         )
         log_text = replies["action_limit_exceeded_log"].format(username=user.username)
@@ -217,8 +217,8 @@ async def ai_assistant_photo_handler(
     if user.tg_id not in settings.bot.ADMINS:
         if not await validate_image_limit(user.tg_id, settings, db_session):
             await message.answer_photo(
-                FSInputFile(path="src/bot/data/not_happy.png"),
-                replies["photo_limit_exceeded"],
+                photo=FSInputFile(path="src/bot/data/not_happy.png"),
+                caption=replies["photo_limit_exceeded"],
                 reply_markup=refresh_pictures_kb(),
             )
             await message.forward(settings.bot.CHAT_LOG_ID)
@@ -309,8 +309,8 @@ async def ai_assistant_text_handler(
     if not check_action_limit(user, settings):
         await message.forward(settings.bot.CHAT_LOG_ID)
         await message.answer_photo(
-            FSInputFile(path="src/bot/data/greetings.png"),
-            replies["action_limit_exceeded"],
+            photo = FSInputFile(path="src/bot/data/greetings.png"),
+            caption = replies["action_limit_exceeded"],
             reply_markup=subscription_kb(),
         )
         log_text = replies["action_limit_exceeded_log"].format(username=user.username)

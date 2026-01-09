@@ -33,18 +33,22 @@ from bot.controllers.base import (
     validate_message_length,
 )
 from bot.controllers.gpt import get_or_create_ai_thread
-from bot.controllers.user import check_action_limit
+from bot.controllers.user import check_action_limit, get_user_counter
 from bot.controllers.voice import process_voice
 from bot.internal.enums import AIState
 from bot.internal.keyboards import refresh_pictures_kb, subscription_kb
 from bot.internal.lexicon import replies
+from bot.middlewares.user_limit import settings
 from database.models import User
-from database.models import PlantAnalysis
+from database.models import PlantAnalysis, OneTimePurchase
 from sqlalchemy import select, desc
 from pathlib import Path
 from aiogram.types import FSInputFile
 from bot.handlers.pdf_generator import generate_plan_pdf
 import tempfile
+from bot.controllers.payments import add_payment_to_db, get_subscription_payment
+from bot.internal.keyboards import payment_link_kb
+from bot.internal.lexicon import payment_text
 
 
 router = Router()
@@ -466,7 +470,6 @@ async def handle_plant_photo(
     await state.update_data(onboarding_scenario=scenario, health_score=score)
     await message.answer(cleaned_for_user)
     await sleep(1)
-    print("Обвал тут")
     await state.set_state(AIState.WAITING_CITY)
 
     if score <= 5:
@@ -625,7 +628,7 @@ async def build_rescue_plan(
     db_session: AsyncSession,
     openai_client: AIClient,
 ):
-    # 1️⃣ Берём последний анализ
+    # last analysis
     stmt = (
         select(PlantAnalysis)
         .where(PlantAnalysis.user_tg_id == user.tg_id)
@@ -642,26 +645,16 @@ async def build_rescue_plan(
         )
         return
 
-    # 2️⃣ Показываем исходные данные
-    await message.answer(
-        "Я подготовлю персональный план ухода на основе этого анализа 👇"
-    )
-
-    await message.answer_photo(
-        photo=analysis.tg_file_id,
-        caption="📸 Фото, на котором основан план"
-    )
-
     if not analysis.thread_id:
         await message.answer("Ошибка: не найден AI-диалог 😔")
         return
 
-    # 3️⃣ Скачиваем изображение
+    # download photo
     file_info = await message.bot.get_file(analysis.tg_file_id)
     file_bytes = await message.bot.download_file(file_info.file_path)
     image_bytes = file_bytes.read()
 
-    # 4️⃣ OpenAI
+    # OpenAI
     response = await openai_client.get_response_with_image(
         thread_id=analysis.thread_id,
         text=PLAN_99_TEXT,
@@ -670,7 +663,7 @@ async def build_rescue_plan(
         fullname=user.fullname,
     )
 
-    # 5️⃣ PDF
+    # PDF
     tmp_dir = Path(tempfile.gettempdir())
     pdf_path = tmp_dir / f"plan_{analysis.id}.pdf"
 
@@ -680,17 +673,38 @@ async def build_rescue_plan(
         title=f"Протокол Реанимации №{analysis.id}",
     )
 
-    # 6️⃣ Отправляем пользователю
+    # send to user
     await message.answer_document(
         FSInputFile(pdf_path),
         caption="📄 Твой персональный план ухода готов 🌱"
     )
 
-    await message.answer(response)
-
 
 
 @router.callback_query(F.data == "pay:rescue_once")
+async def pay_rescue_once(
+    callback: CallbackQuery,
+    user: User,
+    db_session: AsyncSession,
+):
+    await callback.answer()
+
+    amount = 99
+    description = "Разовый план ухода за растением (99₽)."
+    entity = "RECIPE_PLAN"  # <-- это ключ для webhook
+
+    payment = await get_subscription_payment(amount, description, user.tg_id, entity)
+    confirmation_url = payment.confirmation.confirmation_url
+
+    await add_payment_to_db(payment.id, amount, description, user.tg_id, db_session)
+
+    await callback.message.answer(
+        text=payment_text["payment_url_text"].format(description=description),
+        reply_markup=payment_link_kb(amount, confirmation_url),
+    )
+
+
+@router.callback_query(F.data == "get:recipe_plan")
 async def recipe_analysis(
     callback: CallbackQuery,
     state: FSMContext,
@@ -698,20 +712,55 @@ async def recipe_analysis(
     db_session: AsyncSession,
     openai_client: AIClient,
 ):
-    # 🔹 закрываем callback МГНОВЕННО
-    await callback.answer("Готовлю план 🌱")
+    purchase = await db_session.scalar(
+        select(OneTimePurchase).where(
+            OneTimePurchase.user_id == user.tg_id,
+            OneTimePurchase.product_code == "RECIPE_PLAN",
+            OneTimePurchase.is_consumed == False,
+        )
+    )
 
-    # 🔹 информируем пользователя
+    if not purchase:
+        await callback.answer(
+            "Этот план уже был получен или не оплачен 💳",
+            show_alert=True,
+        )
+        return
+
+    await callback.answer()
     await callback.message.answer(
-        "Я готовлю персональный план ухода 🌿\n"
+        "Готовлю персональный план ухода 🌿\n"
         "Это может занять до минуты."
     )
 
-    # 🔹 запускаем тяжёлую логику
     await build_rescue_plan(
         message=callback.message,
         user=user,
         db_session=db_session,
         openai_client=openai_client,
     )
+
+    purchase.is_consumed = True
+    user.action_count += 3
+
+    await callback.message.edit_reply_markup(reply_markup=None)
+    logger.info(
+        "Recipe plan consumed",
+        extra={"user": user.tg_id}
+    )
+    # --- считаем остатки ---
+    user_counter = await get_user_counter(user.tg_id, db_session)
+
+    remaining_text = settings.bot.ACTIONS_THRESHOLD - user.action_count
+
+    # --- сообщение после плана ---
+    await callback.message.answer(
+        "🌿 План готов!\n\n"
+        "🌱 Дорогой друг,\n\n"
+        f"У тебя осталось ещё {remaining_text} попытки.\n"
+        "Ты можешь задать любой вопрос 💬\n"
+        "или отправить фото растения 📸"
+    )
+    await db_session.commit()
+    await state.set_state(AIState.IN_AI_DIALOG)
 

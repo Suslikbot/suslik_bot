@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 
 from bot.config import Settings
 from bot.controllers.payments import get_payment_from_db
@@ -23,7 +25,7 @@ from bot.controllers.user import (
 )
 from bot.internal.enums import AIState, PaidEntity
 from bot.internal.lexicon import payment_text
-from database.models import Payment, User
+from database.models import Payment, User, OneTimePurchase
 from webapp.deps import get_bot, get_db_session, get_settings
 
 router = APIRouter()
@@ -159,7 +161,41 @@ async def yookassa_webhook(
                         "entity": entity,
                     },
                 )
-            await fsm_context.set_state(AIState.IN_AI_DIALOG)
+            #await fsm_context.set_state(AIState.IN_AI_DIALOG)
+            elif entity == 'RECIPE_PLAN':
+                purchase = OneTimePurchase(
+                    user_id=payment.user_tg_id,
+                    product_code="RECIPE_PLAN",
+                    is_consumed=False,
+                )
+                db_session.add(purchase)
+                await db_session.commit()
+
+                await bot.send_message(
+                    payment.user_tg_id,
+                    text = "✅ Оплата прошла!\n\n"
+                    "Нажми кнопку ниже, чтобы получить персональный план ухода 🌿",
+                    reply_markup=InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [
+                                InlineKeyboardButton(
+                                    text="📄 Получить план",
+                                    callback_data="get:recipe_plan",
+                                )
+                            ]
+                        ]
+                    ),
+                )
+
+            logger.info(
+                "Recipe plan purchased",
+                extra={
+                    "username": user.username,
+                    "telegram_id": user.tg_id,
+                    "entity": entity,
+                    "payment_id": payment.payment_id,
+                },
+            )
         elif data.event == "payment.canceled":
             await bot.send_message(
                 settings.bot.CHAT_LOG_ID,
