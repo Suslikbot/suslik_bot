@@ -328,6 +328,21 @@ WELCOME_BY_SOURCE = {
         "text": "Тебя приветсвует магазин 'Цветочки в горшочках', он позоботился о тебе . У тебя есть 3 запроса фото",
         "onboarding": "onboarding_3",
     },
+    "event": {
+        "photo": "src/bot/data/taking_photo.png",
+        "text": "Попробуй обязательно!",
+        "onboarding": "onboarding_3",
+    },
+    "stol": {
+        "photo": "src/bot/data/taking_photo.png",
+        "text": "Попробуй обязательно!",
+        "onboarding": "onboarding_3",
+    },
+    "roll": {
+        "photo": "src/bot/data/taking_photo.png",
+        "text": "Попробуй обязательно!",
+        "onboarding": "onboarding_3",
+    },
     "default": {
         "photo": "src/bot/data/start.png",
         "text": "Привет! Давай познакомимся 🌿",
