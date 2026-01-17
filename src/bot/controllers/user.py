@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from aiogram.types import User
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import Result, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import Settings
@@ -13,7 +14,7 @@ from database.models import UserCounters
 
 logger = logging.getLogger(__name__)
 
-
+# new function add_user_to_db
 async def add_user_to_db(user, db_session: AsyncSession, source: str | None = None) -> BotUser:
     new_user = BotUser(
         tg_id=user.id,
@@ -21,10 +22,19 @@ async def add_user_to_db(user, db_session: AsyncSession, source: str | None = No
         username=compose_username(user),
         source=source,
     )
-    db_session.add(new_user)
-    await db_session.flush()
-    logger.info(f"New user created: {new_user}")
+    try:
+        async with db_session.begin_nested():
+            db_session.add(new_user)
+            await db_session.flush()
+    except IntegrityError:
+        existing_user = await get_user_from_db_by_tg_id(user.id, db_session)
+        if existing_user:
+            logger.info("User already exists, returning existing record: %s", existing_user)
+            return existing_user
+        raise
+    logger.info("New user created: %s", new_user)
     return new_user
+
 
 
 async def get_user_from_db_by_tg_id(telegram_id: int, db_session: AsyncSession) -> BotUser | None:

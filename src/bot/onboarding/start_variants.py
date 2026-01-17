@@ -95,6 +95,8 @@ async def onboarding_3(
         "Отправь мне фото (желательно при хорошем свете) 👇"
     )
     user.is_context_added = True
+    db_session.add(user)
+    await db_session.flush()
     start_keyboard  = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📸 Отправить фото", callback_data="onb:send_photo")],
         [InlineKeyboardButton(text="🚫 Нет растения под рукой? Попробуй Демо", callback_data="onb:demo")]
