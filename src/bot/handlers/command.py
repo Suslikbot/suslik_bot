@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import FSInputFile, Message
 from aiogram.utils.chat_action import ChatActionSender
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from bot.config import Settings
 from bot.controllers.base import imitate_typing
 from bot.controllers.user import ask_next_question, get_user_counter
@@ -39,6 +39,25 @@ async def command_handler(
 ) -> None:
     match command.command:
         case "start":
+            current_state = await state.get_state()
+
+            if current_state in {
+                AIState.WAITING_PLANT_PHOTO,
+                AIState.WAITING_CITY,
+                Form.space,
+                Form.geography,
+                Form.request,
+            }:
+                start_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📸 Отправить фото", callback_data="onb:send_photo")],
+                    [InlineKeyboardButton(text="🚫 Нет растения под рукой? Попробуй Демо", callback_data="onb:demo")],
+                ])
+                await message.answer(
+                    "Мы уже начали знакомство! 👀\n"
+                    "Продолжай — я жду твой ответ или фото.",
+                    reply_markup=start_keyboard,
+                )
+                return
             source = user.source or "default"
             cfg = WELCOME_BY_SOURCE.get(source, WELCOME_BY_SOURCE["default"])
 
@@ -48,8 +67,6 @@ async def command_handler(
             if cfg.get("text"):
                 await message.answer(cfg["text"].format(fullname=user.fullname))
 
-            current_state = await state.get_state()
-
             if user.is_context_added:
                 await state.set_state(AIState.IN_AI_DIALOG)
                 await message.answer(
@@ -58,26 +75,13 @@ async def command_handler(
                 )
                 return
 
-            if current_state in {
-                AIState.WAITING_PLANT_PHOTO,
-                AIState.WAITING_CITY,
-                Form.space,
-                Form.geography,
-                Form.request,
-            }:
-                await message.answer(
-                    "Мы уже начали 👀\n"
-                    "Продолжай — я жду твой ответ или фото."
-                )
-                return
-
-
             variant = "onboarding_3"  # Change onboarding
             await ONBOARDING_VARIANTS[variant](
                 message=message,
                 state=state,
                 user=user,
                 db_session=db_session,
+                settings=settings,
                 replies=replies,
                 ask_next_question=ask_next_question,
                 imitate_typing=imitate_typing,

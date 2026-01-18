@@ -17,7 +17,7 @@ class DBSessionMiddleware(BaseMiddleware):
         event: Message,
         data: dict[str, Any],
     ) -> Any:
-        async with self.db.session_factory.begin() as db_session:
+        async with self.db.session_factory() as db_session:
             data["db_session"] = db_session
             try:
                 res = await handler(event, data)

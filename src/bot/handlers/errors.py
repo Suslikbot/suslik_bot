@@ -1,6 +1,6 @@
 import logging
 import traceback
-
+from html import escape
 import aiogram
 from aiogram import Router
 from aiogram.types import ErrorEvent
@@ -17,10 +17,13 @@ async def error_handler(error_event: ErrorEvent, bot: aiogram.Bot, settings: Set
         traceback.format_exception(None, exc_info, exc_info.__traceback__),
     )
     tb = exc_traceback[-3500:]
-
+    safe_traceback = escape(tb)
+    safe_message = escape(str(exc_info))
     error_message = (
         f"🚨 <b>An error occurred</b> 🚨\n\n"
-        f"<b>Type:</b> {type(exc_info).__name__}\n<b>Message:</b> {exc_info}\n\n<b>Traceback:</b>\n<code>{tb}</code>"
+        f"<b>Type:</b> {type(exc_info).__name__}\n"
+        f"<b>Message:</b> {safe_message}\n\n"
+        f"<b>Traceback:</b>\n<code>{safe_traceback}</code>"
     )
     logging.exception("Exception: ", exc_info=exc_info)
     try:

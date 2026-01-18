@@ -4,6 +4,7 @@ from random import randint
 from asyncio import sleep
 from aiogram.types import FSInputFile
 from aiogram.utils.chat_action import ChatActionSender
+from bot.controllers.onboarding_log import log_onboarding_step
 from aiogram.types import (
     ReplyKeyboardMarkup,
     KeyboardButton
@@ -20,6 +21,7 @@ async def onboarding_1(
     state,
     user,
     db_session,
+    settings,
     replies,
     ask_next_question,
     imitate_typing,
@@ -64,6 +66,7 @@ async def onboarding_2(
     state,
     user,
     db_session,
+    settings,
     replies,
     ask_next_question,
     imitate_typing,
@@ -81,6 +84,7 @@ async def onboarding_3(
     state,
     user,
     db_session,
+    settings,
     replies,
     ask_next_question,
     imitate_typing,
@@ -95,18 +99,23 @@ async def onboarding_3(
         "Отправь мне фото (желательно при хорошем свете) 👇"
     )
     user.is_context_added = True
-    db_session.add(user)
-    await db_session.flush()
     start_keyboard  = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📸 Отправить фото", callback_data="onb:send_photo")],
         [InlineKeyboardButton(text="🚫 Нет растения под рукой? Попробуй Демо", callback_data="onb:demo")]
     ])
-
     await message.answer(
-        text=text,
-        reply_markup=start_keyboard
+        text = text,
+        reply_markup=start_keyboard,
     )
-
+    await state.update_data(wait_reason="onboarding_plant_photo")
+    await state.set_state(AIState.WAITING_PLANT_PHOTO)
+    await log_onboarding_step(
+        message=message,
+        state=state,
+        user=user,
+        settings=settings,
+        step="start_screen_shown",
+    )
     await imitate_typing()
 
     # await state.set_state(AIState.IN_AI_DIALOG)

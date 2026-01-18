@@ -49,10 +49,11 @@ import tempfile
 from bot.controllers.payments import add_payment_to_db, get_subscription_payment
 from bot.internal.keyboards import payment_link_kb
 from bot.internal.lexicon import payment_text
-
+from bot.controllers.onboarding_log import log_onboarding_step
 
 router = Router()
 logger = getLogger(__name__)
+MAX_INVALID_ONBOARDING_PHOTOS = 3
 PHOTO_ANALYSIS_USER_TEXT = (
     "Если пользователь присылает первое фото, ты действуешь как строгий, но заботливый 'Доктор Хаус' для растений.\n"
     "Твоя задача: Проанализировать, напугать (если есть риск) или вдохновить (если все ок), чтобы продать решение.\n"
@@ -153,6 +154,28 @@ def extract_flag(text: str, flag: str) -> str | None:
     """
     match = re.search(rf"{flag}:\s*(YES|NO|GOOD|BAD)", text)
     return match.group(1) if match else None
+async def register_invalid_onboarding_photo(
+    message: Message,
+    state: FSMContext,
+    user: User,
+    settings: Settings,
+    db_session: AsyncSession,
+) -> bool:
+    data = await state.get_data()
+    attempts = data.get("onboarding_invalid_photo_attempts", 0) + 1
+    await state.update_data(onboarding_invalid_photo_attempts=attempts)
+
+    if not user.is_subscribed and user.tg_id not in settings.bot.ADMINS:
+        user.action_count += 1
+        db_session.add(user)
+        await db_session.flush()
+
+    if attempts >= MAX_INVALID_ONBOARDING_PHOTOS:
+        await message.answer(replies["onboarding_invalid_photo_limit"])
+        await state.set_state(AIState.IN_AI_DIALOG)
+        return True
+
+    return False
 
 from pathlib import Path
 
@@ -205,13 +228,20 @@ async def enter_waiting_plant_photo(message, state: FSMContext):
 
 
 @router.callback_query(F.data == "onb:send_photo")
-async def onb_send_photo(callback: CallbackQuery, state: FSMContext):
+async def onb_send_photo(callback: CallbackQuery, state: FSMContext, user: User, settings: Settings):
     await enter_waiting_plant_photo(callback.message, state)
+    await log_onboarding_step(
+        message=callback.message,
+        state=state,
+        user=user,
+        settings=settings,
+        step="button_send_photo",
+    )
     await callback.answer()
 
 
 @router.callback_query(F.data == "onb:demo")
-async def onb_demo(callback: CallbackQuery, state: FSMContext):
+async def onb_demo(callback: CallbackQuery, state: FSMContext, user: User, settings: Settings):
     demo_image_path = "src/bot/data/demo_image_1.jpg"
     await callback.message.answer(
         "Давай я тебе покажу всю ту магию, которую я "
@@ -262,6 +292,13 @@ async def onb_demo(callback: CallbackQuery, state: FSMContext):
         reply_markup=home_time_kb
     )
     await state.set_state(AIState.WAITING_HOME_TIME)
+    await log_onboarding_step(
+        message=callback.message,
+        state=state,
+        user=user,
+        settings=settings,
+        step="demo_shown_wait_home_time",
+    )
     await callback.answer()
 
 from datetime import datetime, timedelta
@@ -273,7 +310,7 @@ from aiogram.types import Message, ReplyKeyboardRemove
     AIState.WAITING_HOME_TIME,
     F.text.in_({"🏠 Через 2 часа", "🏠 Через 4 часа"})
 )
-async def handle_home_time(message: Message, state: FSMContext):
+async def handle_home_time(message: Message, state: FSMContext, user: User, settings: Settings):
     if "2" in message.text:
         hours = 2
     else:
@@ -285,7 +322,14 @@ async def handle_home_time(message: Message, state: FSMContext):
         f"Отлично! Напомню через {hours} часа 😊",
         reply_markup=ReplyKeyboardRemove()
     )
-
+    await log_onboarding_step(
+        message=message,
+        state=state,
+        user=user,
+        settings=settings,
+        step="home_time_selected",
+        extra=f"hours={hours}",
+    )
     # 4. Планируем напоминание
     asyncio.create_task(
         schedule_reminder(
@@ -318,8 +362,15 @@ async def schedule_reminder(bot, chat_id: int, remind_at: datetime):
 from aiogram.types import CallbackQuery
 
 @router.callback_query(F.data == "home:yes")
-async def confirm_home(callback: CallbackQuery, state: FSMContext):
+async def confirm_home(callback: CallbackQuery, state: FSMContext, user: User, settings: Settings):
     await enter_waiting_plant_photo(callback.message, state)
+    await log_onboarding_step(
+        message=callback.message,
+        state=state,
+        user=user,
+        settings=settings,
+        step="home_confirmed_send_photo",
+    )
     await callback.answer()
 
 
@@ -397,6 +448,35 @@ async def handle_plant_photo(
     settings: Settings,
     db_session: AsyncSession,
 ):
+    if not check_action_limit(user, settings):
+        await show_subscription_paywall(
+            message=message,
+            user=user,
+            settings=settings,
+        )
+        return
+
+    if user.tg_id not in settings.bot.ADMINS:
+        if not await validate_image_limit(user.tg_id, settings, db_session):
+            await message.answer_photo(
+                photo=FSInputFile(path="src/bot/data/not_happy.png"),
+                caption=replies["photo_limit_exceeded"],
+                reply_markup=refresh_pictures_kb(),
+            )
+            await message.forward(settings.bot.CHAT_LOG_ID)
+            await message.bot.send_message(
+                settings.bot.CHAT_LOG_ID,
+                replies["pictures_limit_exceeded_log"].format(username=user.username),
+            )
+            return
+
+    state_data = await state.get_data()
+    if not state_data.get("onboarding_first_photo_counted"):
+        user.action_count += 1
+        db_session.add(user)
+        await state.update_data(onboarding_first_photo_counted=True)
+
+
     # 1️⃣ Получаем / создаём AI-thread
     thread_id = await get_or_create_ai_thread(user, openai_client, db_session)
 
@@ -440,20 +520,32 @@ async def handle_plant_photo(
     # 7️⃣ Если Health Score нет — считаем фото невалидным
     # 🚫 На фото не растение
     if plant_flag != "YES":
-        await message.answer(
-            "Я не уверен, что на фото растение 🌱\n"
-            "Пришли, пожалуйста, фото именно растения 📸"
+        await message.answer(replies["onboarding_invalid_photo"])
+        should_stop = await register_invalid_onboarding_photo(
+            message=message,
+            state=state,
+            user=user,
+            settings=settings,
+            db_session=db_session,
         )
+        if should_stop:
+            return
         return  # остаёмся в WAITING_PLANT_PHOTO
 
     score = extract_health_score(cleaned)
 
     # страховка, если модель сломалась
     if score is None:
-        await message.answer(
-            "Я смог распознать растение, но не уверен в оценке состояния 😔\n"
-            "Попробуй прислать фото ещё раз при хорошем освещении 📸"
+        await message.answer(replies["onboarding_unclear_health_score"])
+        should_stop = await register_invalid_onboarding_photo(
+            message=message,
+            state=state,
+            user=user,
+            settings=settings,
+            db_session=db_session,
         )
+        if should_stop:
+            return
         return
     analysis = PlantAnalysis(
         user_tg_id=user.tg_id,  # или user.id — как у тебя принято
@@ -471,7 +563,14 @@ async def handle_plant_photo(
     await message.answer(cleaned_for_user)
     await sleep(1)
     await state.set_state(AIState.WAITING_CITY)
-
+    await log_onboarding_step(
+        message=message,
+        state=state,
+        user=user,
+        settings=settings,
+        step="photo_analyzed",
+        extra=f"score={score} scenario={scenario}",
+    )
     if score <= 5:
         await message.answer(
             "⚠️ Похоже, растению нужна помощь.\n"
@@ -514,7 +613,13 @@ async def handle_plant_photo(
     Form.geography,
     F.text,
 )
-async def handle_geography(message: Message, state: FSMContext, user: User, db_session: AsyncSession):
+async def handle_geography(
+    message: Message,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    settings: Settings,
+):
     city = message.text.strip()
     user.geography = city
     await db_session.commit()
@@ -531,10 +636,24 @@ async def handle_geography(message: Message, state: FSMContext, user: User, db_s
         await show_growth_screen(message, city)
     else:
         await show_rescue_screen(message, city)
+    await log_onboarding_step(
+        message=message,
+        state=state,
+        user=user,
+        settings=settings,
+        step="city_received_form_geography",
+        extra=f"city={city} scenario={scenario}",
+    )
     await state.set_state(AIState.IN_AI_DIALOG)
 
 @router.message(AIState.WAITING_CITY, F.text)
-async def handle_city(message: Message, state: FSMContext, user: User, db_session: AsyncSession):
+async def handle_city(
+    message: Message,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    settings: Settings,
+):
     city = message.text.strip()
     user.geography = city
     await db_session.commit()
@@ -545,6 +664,14 @@ async def handle_city(message: Message, state: FSMContext, user: User, db_sessio
         await show_rescue_screen(message, city)
     else:
         await show_growth_screen(message, city)
+    await log_onboarding_step(
+        message=message,
+        state=state,
+        user=user,
+        settings=settings,
+        step="city_received_waiting_city",
+        extra=f"city={city} scenario={scenario}",
+    )
     await state.set_state(AIState.IN_AI_DIALOG)
 
 @router.callback_query(F.data == "skip")
@@ -553,12 +680,13 @@ async def handle_skip_onboarding(
     state: FSMContext,
     user: User,
     db_session: AsyncSession,
-openai_client=None):
+    settings: Settings,
+    openai_client=None):
     #  ️Устанавливаем action_count = 3
     if user.ai_thread:
         await openai_client.delete_thread(user.ai_thread)
         user.ai_thread = None
-    user.action_count += 3
+    user.action_count += 2
     await db_session.commit()
 
     # Переводим в основной режим
@@ -571,7 +699,13 @@ openai_client=None):
         "Ты можешь задать любой вопрос 💬\n"
         "или отправить фото растения 📸"
     )
-
+    await log_onboarding_step(
+        message=callback.message,
+        state=state,
+        user=user,
+        settings=settings,
+        step="skip_onboarding",
+    )
     # Убираем «часики» у кнопки
     await callback.answer()
 
@@ -587,7 +721,7 @@ async def show_subscription_paywall(
 
     await message.answer_photo(
         FSInputFile(path="src/bot/data/greetings.png"),
-        replies["action_limit_exceeded"],
+        caption=replies["action_limit_exceeded"],
         reply_markup=subscription_kb(),
     )
 
@@ -619,7 +753,14 @@ async def handle_paywall_from_onboarding(
         user=user,
         settings=settings,
     )
-
+    await log_onboarding_step(
+        message=callback.message,
+        state=None,
+        user=user,
+        settings=settings,
+        step="paywall_from_onboarding",
+        extra=f"callback={callback.data}",
+    )
     await callback.answer()
 
 async def build_rescue_plan(

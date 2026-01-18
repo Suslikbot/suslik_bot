@@ -237,10 +237,9 @@ async def ai_assistant_photo_handler(
     current_state = await state.get_state()
 
     if current_state == AIState.WAITING_PLANT_PHOTO:
-        print("xyй-1-1")
         user_text = forced_user_text
     else:
-        print("xyй-2-2")
+
         user_text = "Пользователь отправил изображение без дополнительного текста."
 
 
