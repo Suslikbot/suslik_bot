@@ -14,6 +14,7 @@ from starlette import status
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from bot.controllers.statistics import build_stat_message
 
 
 from bot.config import Settings
@@ -84,10 +85,13 @@ async def yookassa_webhook(
         )
 
         if data.event == "payment.succeeded":
+            was_paid = payment.is_paid
             if data.object.get("status") == "succeeded" and data.object.get("paid"):
                 payment.is_paid = True
                 db_session.add(payment)
                 await db_session.flush()
+                if not was_paid:
+                    logger.info(build_stat_message("Payment_success", payment.user_tg_id))
 
             await bot.send_message(
                 settings.bot.CHAT_LOG_ID,

@@ -1,6 +1,6 @@
 from asyncio import sleep
 import re
-
+from bot.controllers.statistics import build_stat_message
 from aiogram.utils.chat_action import ChatActionSender
 
 from bot.controllers import user
@@ -475,7 +475,7 @@ async def handle_plant_photo(
         user.action_count += 1
         db_session.add(user)
         await state.update_data(onboarding_first_photo_counted=True)
-
+        logger.info(build_stat_message("Photo_upload", user.tg_id))
 
     # 1️⃣ Получаем / создаём AI-thread
     thread_id = await get_or_create_ai_thread(user, openai_client, db_session)
@@ -557,6 +557,7 @@ async def handle_plant_photo(
     )
     db_session.add(analysis)
     await db_session.commit()
+    logger.info(build_stat_message("Diagnosis_result", user.tg_id))
 
     scenario = "rescue" if score <= 5 else "growth"
     await state.update_data(onboarding_scenario=scenario, health_score=score)
@@ -734,6 +735,7 @@ async def show_subscription_paywall(
         settings.bot.CHAT_LOG_ID,
         log_text,
     )
+    logger.info(build_stat_message("Paywall_view", user.tg_id))
 
 @router.callback_query(F.data.in_(["pay:rescue", "pay:growth"]))
 async def handle_paywall_from_onboarding(

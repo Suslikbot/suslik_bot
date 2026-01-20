@@ -1,5 +1,5 @@
 from asyncio import sleep
-from datetime import datetime
+from datetime import datetime, timedelta
 from logging import getLogger
 from random import randint
 
@@ -11,6 +11,12 @@ from aiogram.utils.chat_action import ChatActionSender
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from bot.config import Settings
+from bot.controllers.statistics import (
+    build_stats_snapshot,
+    list_stat_log_paths,
+    iter_stat_events,
+    build_stat_message,
+)
 from bot.controllers.base import imitate_typing
 from bot.controllers.user import ask_next_question, get_user_counter
 from bot.internal.enums import AIState, Form
@@ -19,6 +25,7 @@ from bot.internal.lexicon import replies, support_text, WELCOME_BY_SOURCE
 from database.models import User, UserCounters
 from sqlalchemy import select
 from bot.onboarding.start_variants import ONBOARDING_VARIANTS
+from dateutil.relativedelta import relativedelta
 
 
 
@@ -39,6 +46,7 @@ async def command_handler(
 ) -> None:
     match command.command:
         case "start":
+            logger.info(build_stat_message("Start_bot", user.tg_id))
             current_state = await state.get_state()
 
             if current_state in {
@@ -130,6 +138,46 @@ async def command_handler(
                 )
         case "share":
             await message.answer("Выберите, кому хотите подарить подписку", reply_markup=contact_kb)
+
+
+@router.message(Command("static"))
+async def stats_handler(
+    message: Message,
+    settings: Settings,
+    db_session: AsyncSession,
+) -> None:
+    if message.from_user.id not in settings.bot.ADMINS:
+        await message.answer("❌ У вас нет прав на просмотр статистики")
+        return
+
+    now = datetime.now().astimezone()
+    current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    events = iter_stat_events(list_stat_log_paths())
+    periods = [
+        ("За все время", None, now),
+        ("За последние 2 месяца", now - relativedelta(months=2), now),
+        ("За текущий месяц", current_month_start, now),
+        ("За последнюю неделю", now - timedelta(days=7), now),
+    ]
+
+    sections: list[str] = ["📊 Статистика"]
+    for title, start_at, end_at in periods:
+        stats = build_stats_snapshot(events, start_at, end_at)
+        sections.append(
+            "\n".join(
+                [
+                    "",
+                    f"{title}:",
+                    f"- Start_bot: {stats.start_bot}",
+                    f"- Photo_upload (первое фото): {stats.photo_upload}",
+                    f"- Paywall_view: {stats.paywall_view}",
+                    f"- Payment_success: {stats.payment_success}",
+                    f"- Diagnosis_result: {stats.diagnosis_result}",
+                ]
+            )
+        )
+
+    await message.answer("\n".join(sections))
 
 
 @router.message(Command("broadcast"))

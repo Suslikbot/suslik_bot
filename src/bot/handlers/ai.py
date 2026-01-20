@@ -1,5 +1,5 @@
 from logging import getLogger
-
+from bot.controllers.statistics import build_stat_message
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
@@ -168,6 +168,7 @@ async def ai_assistant_voice_handler(
         log_text = replies["action_limit_exceeded_log"].format(username=user.username)
         logger.info(log_text)
         await message.bot.send_message(settings.bot.CHAT_LOG_ID, log_text)
+        logger.info(build_stat_message("Paywall_view", user.tg_id))
         return
     thread_id = await get_or_create_ai_thread(user, openai_client, db_session)
     await message.forward(settings.bot.CHAT_LOG_ID)
@@ -208,6 +209,7 @@ async def ai_assistant_photo_handler(
         log_text = replies["action_limit_exceeded_log"].format(username=user.username)
         logger.info(log_text)
         await message.bot.send_message(settings.bot.CHAT_LOG_ID, log_text)
+        logger.info(build_stat_message("Paywall_view", user.tg_id))
         return
     if message.media_group_id is not None:
         await message.answer(
@@ -315,6 +317,7 @@ async def ai_assistant_text_handler(
         log_text = replies["action_limit_exceeded_log"].format(username=user.username)
         logger.info(log_text)
         await message.bot.send_message(settings.bot.CHAT_LOG_ID, log_text)
+        logger.info(build_stat_message("Paywall_view", user.tg_id))
         return
 
     if not await validate_message_length(message, state):
