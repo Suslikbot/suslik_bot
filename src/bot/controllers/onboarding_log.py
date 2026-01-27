@@ -12,6 +12,8 @@ async def log_onboarding_step(
     settings: Settings,
     step: str,
     extra: str | None = None,
+    user_message: str | None = None,
+    bot_response: str | None = None,
 ) -> None:
     current_state = await state.get_state() if state else None
     lines = [
@@ -22,4 +24,8 @@ async def log_onboarding_step(
     ]
     if extra:
         lines.append(f"extra: {extra}")
+    if user_message:
+        lines.append(f"user_message: {user_message}")
+    if bot_response:
+        lines.append(f"bot_response: {bot_response}")
     await message.bot.send_message(settings.bot.CHAT_LOG_ID, "\n".join(lines))

@@ -221,21 +221,25 @@ async def get_last_thread_id(db_session: AsyncSession, user_tg_id: int) -> str |
 async def enter_waiting_plant_photo(message, state: FSMContext):
     await state.update_data(wait_reason="onboarding_plant_photo")
     await state.set_state(AIState.WAITING_PLANT_PHOTO)
-    await message.answer(
+    prompt_text = (
         "📎 Пришли фото растения 📸\n"
         "Лучше при хорошем дневном свете и чтобы лист был крупно 🌿"
     )
+    await message.answer(prompt_text)
+    return prompt_text
 
 
 @router.callback_query(F.data == "onb:send_photo")
 async def onb_send_photo(callback: CallbackQuery, state: FSMContext, user: User, settings: Settings):
-    await enter_waiting_plant_photo(callback.message, state)
+    prompt_text = await enter_waiting_plant_photo(callback.message, state)
     await log_onboarding_step(
         message=callback.message,
         state=state,
         user=user,
         settings=settings,
         step="button_send_photo",
+        user_message=f"callback:{callback.data}",
+        bot_response=prompt_text,
     )
     await callback.answer()
 
@@ -286,11 +290,11 @@ async def onb_demo(callback: CallbackQuery, state: FSMContext, user: User, setti
         resize_keyboard=True,
         one_time_keyboard=True
     )
-    await callback.message.answer(
+    home_time_prompt = (
         "Скажи мне, когда ты будешь дома, чтобы ты смог прислать фото своих растений.\n\n"
-        "Тогда мы сможем повторить это упражнение уже на твоих растениях 🌿",
-        reply_markup=home_time_kb
+        "Тогда мы сможем повторить это упражнение уже на твоих растениях 🌿"
     )
+    await callback.message.answer(home_time_prompt, reply_markup=home_time_kb)
     await state.set_state(AIState.WAITING_HOME_TIME)
     await log_onboarding_step(
         message=callback.message,
@@ -298,6 +302,8 @@ async def onb_demo(callback: CallbackQuery, state: FSMContext, user: User, setti
         user=user,
         settings=settings,
         step="demo_shown_wait_home_time",
+        user_message=f"callback:{callback.data}",
+        bot_response=home_time_prompt
     )
     await callback.answer()
 
@@ -318,10 +324,8 @@ async def handle_home_time(message: Message, state: FSMContext, user: User, sett
 
     remind_at = datetime.utcnow() + timedelta(hours=hours)
 
-    await message.answer(
-        f"Отлично! Напомню через {hours} часа 😊",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    response_text = f"Отлично! Напомню через {hours} часа 😊"
+    await message.answer(response_text, reply_markup=ReplyKeyboardRemove())
     await log_onboarding_step(
         message=message,
         state=state,
@@ -329,6 +333,8 @@ async def handle_home_time(message: Message, state: FSMContext, user: User, sett
         settings=settings,
         step="home_time_selected",
         extra=f"hours={hours}",
+        user_message=message.text,
+        bot_response=response_text,
     )
     # 4. Планируем напоминание
     asyncio.create_task(
@@ -363,13 +369,15 @@ from aiogram.types import CallbackQuery
 
 @router.callback_query(F.data == "home:yes")
 async def confirm_home(callback: CallbackQuery, state: FSMContext, user: User, settings: Settings):
-    await enter_waiting_plant_photo(callback.message, state)
+    prompt_text = await enter_waiting_plant_photo(callback.message, state)
     await log_onboarding_step(
         message=callback.message,
         state=state,
         user=user,
         settings=settings,
         step="home_confirmed_send_photo",
+        user_message=f"callback:{callback.data}",
+        bot_response=prompt_text,
     )
     await callback.answer()
 
@@ -394,29 +402,30 @@ def extract_health_score(text: str) -> int | None:
     match = re.search(r'(\d{1,2})/10', text)
     return int(match.group(1)) if match else None
 async def show_rescue_screen(message: Message, city: str):
-    await message.answer(
-        f"⚠️ Ситуация серьёзная, но растение можно спасти.\n\n"
+    response_text = (
+        "⚠️ Ситуация серьёзная, но растение можно спасти.\n\n"
         "Я подготовил для тебя экстренный 'Протокол Реанимации на 14 дней':\n"
         "💧 режим «сухого полива» (график)\n"
         "✂️ какие корни подрезать (схемы)\n"
         "💊 список дешёвых средств из аптеки\n\n"
-        "Забери план и спаси растение 👇",
-        reply_markup=RESCUE_KB
+        "Забери план и спаси растение 👇"
     )
+    await message.answer(response_text, reply_markup=RESCUE_KB)
+    return response_text
 
 
 async def show_growth_screen(message: Message, city: str):
-
-    await message.answer(
-        f"🌿 Растение в хорошем состоянии!\n\n"
+    response_text = (
+        "🌿 Растение в хорошем состоянии!\n\n"
         "Хочешь перевести его в режим **«Активный рост»**?\n\n"
         "✅ Что ты получишь:\n"
         f"• умные напоминания под погоду в {city}\n"
         "• схему подкормки для крупных листьев\n"
         "• алерты при опасной влажности\n\n"
-        "Я могу следить за растением 24/7 👇",
-        reply_markup=GROWTH_KB,
+        "Я могу следить за растением 24/7 👇"
     )
+    await message.answer(response_text, reply_markup=GROWTH_KB)
+    return response_text
 
 
 RESCUE_KB = InlineKeyboardMarkup(inline_keyboard=[
@@ -469,7 +478,7 @@ async def handle_plant_photo(
                 replies["pictures_limit_exceeded_log"].format(username=user.username),
             )
             return
-
+    await message.forward(settings.bot.CHAT_LOG_ID)
     state_data = await state.get_data()
     if not state_data.get("onboarding_first_photo_counted"):
         user.action_count += 1
@@ -564,6 +573,18 @@ async def handle_plant_photo(
     await message.answer(cleaned_for_user)
     await sleep(1)
     await state.set_state(AIState.WAITING_CITY)
+
+    if score <= 5:
+        follow_up_text = (
+            "⚠️ Похоже, растению нужна помощь.\n"
+            "Чтобы я рассчитал уход под твой климат, напиши свой город 🌍"
+        )
+    else:
+        follow_up_text = (
+            "✅ В целом растение чувствует себя неплохо!\n"
+            "Чтобы я рассчитал уход под твой климат, напиши свой город 🌍"
+        )
+    await message.answer(follow_up_text)
     await log_onboarding_step(
         message=message,
         state=state,
@@ -571,19 +592,9 @@ async def handle_plant_photo(
         settings=settings,
         step="photo_analyzed",
         extra=f"score={score} scenario={scenario}",
+        user_message="[photo]",
+        bot_response=f"{cleaned_for_user}\n\n{follow_up_text}",
     )
-    if score <= 5:
-        await message.answer(
-            "⚠️ Похоже, растению нужна помощь.\n"
-            "Чтобы я рассчитал уход под твой климат, напиши свой город 🌍"
-        )
-    else:
-        await message.answer(
-            "✅ В целом растение чувствует себя неплохо!\n"
-            "Чтобы я рассчитал уход под твой климат, напиши свой город 🌍"
-        )
-
-
 
 
 '''@router.message(AIState.WAITING_PLANT_PHOTO, F.photo)
@@ -632,11 +643,11 @@ async def handle_geography(
    # await state.set_state(AIState.IN_AI_DIALOG)
 
     if scenario == "rescue":
-        await show_rescue_screen(message, city)
+        response_text = await show_rescue_screen(message, city)
     elif scenario == "growth":
-        await show_growth_screen(message, city)
+        response_text = await show_growth_screen(message, city)
     else:
-        await show_rescue_screen(message, city)
+        response_text = await show_rescue_screen(message, city)
     await log_onboarding_step(
         message=message,
         state=state,
@@ -644,6 +655,8 @@ async def handle_geography(
         settings=settings,
         step="city_received_form_geography",
         extra=f"city={city} scenario={scenario}",
+        user_message=message.text,
+        bot_response=response_text,
     )
     await state.set_state(AIState.IN_AI_DIALOG)
 
@@ -662,9 +675,9 @@ async def handle_city(
     scenario = data.get("onboarding_scenario")
 
     if scenario == "rescue":
-        await show_rescue_screen(message, city)
+        response_text = await show_rescue_screen(message, city)
     else:
-        await show_growth_screen(message, city)
+        response_text = await show_growth_screen(message, city)
     await log_onboarding_step(
         message=message,
         state=state,
@@ -672,6 +685,8 @@ async def handle_city(
         settings=settings,
         step="city_received_waiting_city",
         extra=f"city={city} scenario={scenario}",
+        user_message=message.text,
+        bot_response=response_text,
     )
     await state.set_state(AIState.IN_AI_DIALOG)
 
@@ -694,18 +709,21 @@ async def handle_skip_onboarding(
     await state.set_state(AIState.IN_AI_DIALOG)
 
     # Сообщение пользователю
-    await callback.message.answer(
+    skip_text = (
         "🌱 Дорогой друг,\n\n"
         "У тебя осталось ещё 2 попытки.\n"
         "Ты можешь задать любой вопрос 💬\n"
         "или отправить фото растения 📸"
     )
+    await callback.message.answer(skip_text)
     await log_onboarding_step(
         message=callback.message,
         state=state,
         user=user,
         settings=settings,
         step="skip_onboarding",
+        user_message=f"callback:{callback.data}",
+        bot_response=skip_text,
     )
     # Убираем «часики» у кнопки
     await callback.answer()
@@ -762,6 +780,8 @@ async def handle_paywall_from_onboarding(
         settings=settings,
         step="paywall_from_onboarding",
         extra=f"callback={callback.data}",
+        user_message=f"callback:{callback.data}",
+        bot_response="paywall_shown",
     )
     await callback.answer()
 
