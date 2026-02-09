@@ -25,7 +25,8 @@ from bot.controllers.user import (
     update_user_expiration,
 )
 from bot.internal.enums import AIState, PaidEntity
-from bot.internal.lexicon import payment_text
+from bot.internal.keyboards import garden_entry_kb
+from bot.internal.lexicon import garden_text, payment_text
 from database.models import Payment, User, OneTimePurchase
 from webapp.deps import get_bot, get_db_session, get_settings
 
@@ -110,11 +111,12 @@ async def yookassa_webhook(
                 PaidEntity.ONE_MONTH_SUBSCRIPTION,
                 PaidEntity.ONE_YEAR_SUBSCRIPTION,
             ):
-                text = (
+                base_text = (
                     payment_text["1 month success"]
                     if entity == PaidEntity.ONE_MONTH_SUBSCRIPTION
                     else payment_text["1 year success"]
                 )
+                text = f"{base_text}\n\n{garden_text['intro']}"
                 dutation = (
                     relativedelta(months=1) if entity == PaidEntity.ONE_MONTH_SUBSCRIPTION else relativedelta(years=1)
                 )
@@ -128,6 +130,7 @@ async def yookassa_webhook(
                             path="src/bot/data/gardener1.png",
                         ),
                         caption=text,
+                        reply_markup=garden_entry_kb(),
                     )
                     logger.info(
                         "Successful payment",

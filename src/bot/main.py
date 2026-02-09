@@ -17,6 +17,7 @@ from bot.handlers.ai import router as ai_router
 from bot.handlers.base import router as base_router
 from bot.handlers.command import router as commands_router
 from bot.handlers.errors import router as error_router
+from bot.handlers.garden import router as garden_router
 from bot.handlers.payment import router as payment_router
 from bot.internal.enums import Stage
 from bot.internal.helpers import setup_logs
@@ -78,6 +79,7 @@ async def main():
         payment_router,
         base_router,
         onboarding_callbacks_router,
+        garden_router,
         ai_router,
         # onboarding_callbacks_router,
         error_router,

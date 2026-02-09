@@ -98,3 +98,31 @@ class OneTimePurchase(Base):
     product_code: Mapped[str]  # "RECIPE_PLAN"
     is_consumed: Mapped[bool]  # False → True
     created_at: Mapped[datetime]
+
+class GardenPlant(Base):
+    __tablename__ = "garden_plants"
+
+    user_tg_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.tg_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    name: Mapped[str]
+    status: Mapped[str]
+    watering_interval_days: Mapped[int] = mapped_column(Integer, default=7)
+    last_watered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_watering_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notifications_enabled: Mapped[bool] = mapped_column(BOOLEAN, default=True, server_default="true")
+    last_notification_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class GardenPlantHistory(Base):
+    __tablename__ = "garden_plant_history"
+
+    plant_id: Mapped[int] = mapped_column(
+        ForeignKey("garden_plants.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    description: Mapped[str] = mapped_column(Text, nullable=False)

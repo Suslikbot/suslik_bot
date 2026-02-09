@@ -28,6 +28,11 @@ from database.models import User
 router = Router()
 logger = getLogger(__name__)
 
+async def increment_action_count_if_needed(user: User, settings: Settings, db_session: AsyncSession) -> None:
+    if not user.is_subscribed and user.tg_id not in settings.bot.ADMINS:
+        user.action_count += 1
+        db_session.add(user)
+        await db_session.flush()
 
 def split_markdown_message(text: str, limit: int = 3500) -> list[str]:
     """
@@ -184,9 +189,7 @@ async def ai_assistant_voice_handler(
             sent_messages.append(msg_answer)
         for msg in sent_messages:
             await msg.forward(settings.bot.CHAT_LOG_ID)
-    if not user.is_subscribed and user.tg_id not in settings.bot.ADMINS:
-        user.action_count += 1
-    db_session.add(user)
+    await increment_action_count_if_needed(user, settings, db_session)
 
 
 @router.message(AIState.IN_AI_DIALOG, F.photo)
@@ -292,10 +295,7 @@ async def ai_assistant_photo_handler(
             logger.exception(f"Unexpected error: {e}")
             await message.answer("Произошла непредвиденная ошибка. Пожалуйста, попробуйте позже.")
 
-    if user.tg_id not in settings.bot.ADMINS:
-        if not user.is_subscribed:
-            user.action_count += 1
-            db_session.add(user)
+    await increment_action_count_if_needed(user, settings, db_session)
 
 
 @router.message(AIState.IN_AI_DIALOG, F.text)
@@ -340,8 +340,6 @@ async def ai_assistant_text_handler(
             sent_messages.append(msg_answer)
         for msg in sent_messages:
             await msg.forward(settings.bot.CHAT_LOG_ID)
-    if not user.is_subscribed and user.tg_id not in settings.bot.ADMINS:
-        user.action_count += 1
-    db_session.add(user)
+    await increment_action_count_if_needed(user, settings, db_session)
 
 

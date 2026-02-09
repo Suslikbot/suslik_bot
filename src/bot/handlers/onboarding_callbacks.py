@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, FSInputFile
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-
+from aiogram.exceptions import TelegramBadRequest
 from bot.ai_client import AIClient
 from bot.config import Settings
 from bot.internal.enums import AIState, Form
@@ -53,6 +53,16 @@ from bot.controllers.onboarding_log import log_onboarding_step
 
 router = Router()
 logger = getLogger(__name__)
+
+async def safe_callback_answer(callback: CallbackQuery) -> None:
+    try:
+        await callback.answer()
+    except TelegramBadRequest as exc:
+        if "query is too old" in str(exc):
+            logger.warning("Callback answer skipped: query is too old")
+        else:
+            raise
+
 MAX_INVALID_ONBOARDING_PHOTOS = 3
 PHOTO_ANALYSIS_USER_TEXT = (
     "Если пользователь присылает первое фото, ты действуешь как строгий, но заботливый 'Доктор Хаус' для растений.\n"
@@ -231,6 +241,7 @@ async def enter_waiting_plant_photo(message, state: FSMContext):
 
 @router.callback_query(F.data == "onb:send_photo")
 async def onb_send_photo(callback: CallbackQuery, state: FSMContext, user: User, settings: Settings):
+    await callback.message.edit_reply_markup(reply_markup=None)
     prompt_text = await enter_waiting_plant_photo(callback.message, state)
     await log_onboarding_step(
         message=callback.message,
@@ -246,13 +257,15 @@ async def onb_send_photo(callback: CallbackQuery, state: FSMContext, user: User,
 
 @router.callback_query(F.data == "onb:demo")
 async def onb_demo(callback: CallbackQuery, state: FSMContext, user: User, settings: Settings):
+    await safe_callback_answer(callback)
+    await callback.message.edit_reply_markup(reply_markup=None)
     demo_image_path = "src/bot/data/demo_image_1.jpg"
     await callback.message.answer(
         "Давай я тебе покажу всю ту магию, которую я "
         "умею делать на примере. Вот фото реального растения,"
         "который нам присылал пользователь!"
     )
-    await sleep(1)
+    await sleep(2)
     text = """👀 Смотри, какой тяжелый случай мне прислала Аня вчера.
     
     📸 Анализ завершен.
@@ -270,25 +283,23 @@ async def onb_demo(callback: CallbackQuery, state: FSMContext, user: User, setti
         photo = FSInputFile(demo_image_path),
         caption = text
     )
-    await sleep(1)
+    await sleep(15)
     text = "А вот что с ним стало буквально через месяц нашего ухода!"
     demo_image_path = "src/bot/data/demo_image_2.jpg"
     await callback.message.answer_photo(
         photo=FSInputFile(demo_image_path),
         caption=text
     )
-    await sleep(0.5)
+    await sleep(3)
         # await callback.message.answer(
      #   "Скажи мне когда ты будешь дома, чтобы ты смог прислать мне фото своих растений? Тогда мы сможем повторить эти упражнения уже на твоих растениях!"
    # )
-
-    home_time_kb = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🏠 Через 2 часа")],
-            [KeyboardButton(text="🏠 Через 4 часа")],
-        ],
-        resize_keyboard=True,
-        one_time_keyboard=True
+    home_time_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Я готов сейчас", callback_data="home_time:0")],
+            [InlineKeyboardButton(text="⏳ Буду дома через 2 часа", callback_data="home_time:2")],
+            [InlineKeyboardButton(text="🌙 Буду дома через 4 часа", callback_data="home_time:4")],
+        ]
     )
     home_time_prompt = (
         "Скажи мне, когда ты будешь дома, чтобы ты смог прислать фото своих растений.\n\n"
@@ -305,48 +316,58 @@ async def onb_demo(callback: CallbackQuery, state: FSMContext, user: User, setti
         user_message=f"callback:{callback.data}",
         bot_response=home_time_prompt
     )
-    await callback.answer()
 
 from datetime import datetime, timedelta
 import asyncio
-from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.types import Message
 
 
-@router.message(
+@router.callback_query(
     AIState.WAITING_HOME_TIME,
-    F.text.in_({"🏠 Через 2 часа", "🏠 Через 4 часа"})
+    F.data.in_({"home_time:0", "home_time:2", "home_time:4"})
 )
-async def handle_home_time(message: Message, state: FSMContext, user: User, settings: Settings):
-    if "2" in message.text:
+async def handle_home_time(callback: CallbackQuery, state: FSMContext, user: User, settings: Settings):
+    await safe_callback_answer(callback)
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+    if callback.data == "home_time:0":
+        hours = 0
+    elif callback.data == "home_time:2":
         hours = 2
     else:
         hours = 4
 
     remind_at = datetime.utcnow() + timedelta(hours=hours)
 
-    response_text = f"Отлично! Напомню через {hours} часа 😊"
-    await message.answer(response_text, reply_markup=ReplyKeyboardRemove())
+    response_text = (
+        "Отлично! Тогда начинаем прямо сейчас 😊" if hours == 0 else f"Отлично! Напомню через {hours} часа 😊")
+    await callback.message.answer(response_text)
     await log_onboarding_step(
-        message=message,
+        message=callback.message,
         state=state,
         user=user,
         settings=settings,
         step="home_time_selected",
         extra=f"hours={hours}",
-        user_message=message.text,
+        user_message=f"callback:{callback.data}",
         bot_response=response_text,
     )
-    # 4. Планируем напоминание
-    asyncio.create_task(
-        schedule_reminder(
-            message.bot,
-            message.chat.id,
-            remind_at
+    if hours == 0:
+        await callback.message.answer(
+            "Супер! Тогда пришли фото растения 📸\n"
+            "Лучше при хорошем дневном свете и чтобы лист был крупно 🌿"
         )
-    )
+        await state.set_state(AIState.WAITING_PLANT_PHOTO)
+    else:
+        asyncio.create_task(
+            schedule_reminder(
+                callback.message.bot,
+                callback.message.chat.id,
+                remind_at
+            )
+        )
 
-    # 5. Сбрасываем состояние (или можно перевести в другое)
-    # await state.clear()
+
 
 async def schedule_reminder(bot, chat_id: int, remind_at: datetime):
     delay = (remind_at - datetime.utcnow()).total_seconds()
@@ -379,7 +400,7 @@ async def confirm_home(callback: CallbackQuery, state: FSMContext, user: User, s
         user_message=f"callback:{callback.data}",
         bot_response=prompt_text,
     )
-    await callback.answer()
+    await safe_callback_answer(callback)
 
 
 # @router.callback_query(F.data == "home:yes")
@@ -394,7 +415,7 @@ async def confirm_home(callback: CallbackQuery, state: FSMContext, user: User, s
 #    await state.set_state(AIState.WAITING_PLANT_PHOTO)
     # или WAITING_PHOTO, если заведёшь отдельное
 
-#    await callback.answer()
+#    await safe_callback_answer(callback)
 
 from aiogram.types import Message
 
@@ -726,7 +747,7 @@ async def handle_skip_onboarding(
         bot_response=skip_text,
     )
     # Убираем «часики» у кнопки
-    await callback.answer()
+    await safe_callback_answer(callback)
 
 from aiogram.types import Message
 from aiogram.types import FSInputFile
@@ -783,7 +804,7 @@ async def handle_paywall_from_onboarding(
         user_message=f"callback:{callback.data}",
         bot_response="paywall_shown",
     )
-    await callback.answer()
+    await safe_callback_answer(callback)
 
 async def build_rescue_plan(
     message: Message,
@@ -850,7 +871,7 @@ async def pay_rescue_once(
     user: User,
     db_session: AsyncSession,
 ):
-    await callback.answer()
+    await safe_callback_answer(callback)
 
     amount = 99
     description = "Разовый план ухода за растением (99₽)."
@@ -890,7 +911,7 @@ async def recipe_analysis(
         )
         return
 
-    await callback.answer()
+    await safe_callback_answer(callback)
     await callback.message.answer(
         "Готовлю персональный план ухода 🌿\n"
         "Это может занять до минуты."
