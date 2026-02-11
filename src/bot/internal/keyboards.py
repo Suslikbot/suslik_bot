@@ -77,15 +77,60 @@ def refresh_pictures_kb() -> InlineKeyboardMarkup:
 def garden_entry_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(
+        text="💬 Оставьте в режиме диалога",
+        callback_data="postpay:stay_dialog",
+    )
+    kb.button(
+        text="🏡 Заглянуть в мой сад",
+        callback_data="postpay:open_garden",
+    )
+    kb.adjust(1)
+    return kb.as_markup()
+
+def garden_species_confirm_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text="✅ Да, это оно",
+        callback_data=GardenCallbackFactory(action=GardenAction.CONFIRM_GUESS_YES).pack(),
+    )
+    kb.button(
+        text="✍️ Нет, укажу вручную",
+        callback_data=GardenCallbackFactory(action=GardenAction.CONFIRM_GUESS_NO).pack(),
+    )
+    kb.adjust(1)
+    return kb.as_markup()
+
+def garden_add_choice_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text="📸 Сделать фото",
+        callback_data=GardenCallbackFactory(action=GardenAction.ADD_WITH_PHOTO).pack(),
+    )
+    kb.button(
+        text="✍️ Оставить без фото",
+        callback_data=GardenCallbackFactory(action=GardenAction.ADD_WITHOUT_PHOTO).pack(),
+    )
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def garden_welcome_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text="🏡 Перейти в мой сад",
+        callback_data=GardenCallbackFactory(action=GardenAction.OPEN).pack(),
+    )
+    kb.button(
         text="➕ Добавить еще растение",
         callback_data=GardenCallbackFactory(action=GardenAction.ADD).pack(),
     )
     kb.button(
-        text="🏡 Перейти в Мой сад",
-        callback_data=GardenCallbackFactory(action=GardenAction.OPEN).pack(),
+        text="💬 Вернуться в режим диалога",
+        callback_data="postpay:stay_dialog",
     )
     kb.adjust(1)
     return kb.as_markup()
+
 
 
 def garden_list_kb(plant_buttons: list[tuple[str, int]]) -> InlineKeyboardMarkup:

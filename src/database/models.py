@@ -7,6 +7,8 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Numeric,
+    String,
     func,
     Text,
     Column
@@ -126,3 +128,88 @@ class GardenPlantHistory(Base):
         nullable=False,
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class PlantSpecies(Base):
+    __tablename__ = "plant_species"
+
+    latin_name: Mapped[str] = mapped_column(Text, nullable=False)
+    common_name: Mapped[str | None] = mapped_column(Text)
+    water_days_min: Mapped[int | None] = mapped_column(Integer)
+    water_days_max: Mapped[int | None] = mapped_column(Integer)
+    spray_interval: Mapped[int | None] = mapped_column(Integer)
+    light_type: Mapped[str | None] = mapped_column(String(64))
+    description: Mapped[str | None] = mapped_column(Text)
+
+
+class UserPlant(Base):
+    __tablename__ = "user_plants"
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.tg_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    species_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plant_species.id", ondelete="SET NULL"),
+        index=True,
+    )
+    nickname: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="healthy", server_default="healthy")
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    notifications_enabled: Mapped[bool] = mapped_column(BOOLEAN, default=True, server_default="true")
+
+
+class PlantPhoto(Base):
+    __tablename__ = "plant_photos"
+
+    user_plant_id: Mapped[int] = mapped_column(
+        ForeignKey("user_plants.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    image_url: Mapped[str] = mapped_column(Text, nullable=False)
+    ml_guess: Mapped[str | None] = mapped_column(Text)
+    ml_confidence: Mapped[float | None] = mapped_column(Numeric(4, 3))
+    confirmed: Mapped[bool] = mapped_column(BOOLEAN, nullable=False, default=False, server_default="false")
+
+
+class CareProfile(Base):
+    __tablename__ = "care_profiles"
+
+    user_plant_id: Mapped[int] = mapped_column(
+        ForeignKey("user_plants.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    water_interval: Mapped[int | None] = mapped_column(Integer)
+    spray_interval: Mapped[int | None] = mapped_column(Integer)
+    last_watered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_water_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    user_plant_id: Mapped[int] = mapped_column(
+        ForeignKey("user_plants.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    type: Mapped[str] = mapped_column(String(32), nullable=False)
+    cron_expr: Mapped[str] = mapped_column(Text, nullable=False)
+    next_run: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    enabled: Mapped[bool] = mapped_column(BOOLEAN, nullable=False, default=True, server_default="true")
+
+
+class PlantCareLog(Base):
+    __tablename__ = "plant_care_logs"
+
+    user_plant_id: Mapped[int] = mapped_column(
+        ForeignKey("user_plants.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text)

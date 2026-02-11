@@ -117,6 +117,10 @@ async def mark_notified(plant: GardenPlant, db_session: AsyncSession, now: datet
     plant.last_notification_at = now
     await db_session.flush()
 
+async def add_history_entry(plant_id: int, description: str, db_session: AsyncSession) -> None:
+    await _add_history(plant_id, description, db_session)
+
+
 
 async def _add_history(plant_id: int, description: str, db_session: AsyncSession) -> None:
     entry = GardenPlantHistory(

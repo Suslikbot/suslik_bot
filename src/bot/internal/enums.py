@@ -17,8 +17,13 @@ class AIState(StatesGroup):
     WAITING_CITY = State()
 
 class GardenState(StatesGroup):
+    WAITING_ADD_PLANT_CHOICE = State()
+    WAITING_NEW_PLANT_PHOTO = State()
     WAITING_PLANT_NAME = State()
+    WAITING_LAST_WATERED_DATE = State()
     WAITING_PLANT_RENAME = State()
+    IN_GARDEN_STUB = State()
+
 
 class PaidEntity(StrEnum):
     ONE_MONTH_SUBSCRIPTION = auto()
@@ -58,6 +63,10 @@ class Stage(StrEnum):
 class GardenAction(StrEnum):
     OPEN = auto()
     ADD = auto()
+    ADD_WITH_PHOTO = auto()
+    ADD_WITHOUT_PHOTO = auto()
+    CONFIRM_GUESS_YES = auto()
+    CONFIRM_GUESS_NO = auto()
     VIEW = auto()
     WATERED = auto()
     SETTINGS = auto()
