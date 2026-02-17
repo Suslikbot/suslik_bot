@@ -1,6 +1,6 @@
 from functools import cache
 
-from pydantic import Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings
 
 from bot.internal.enums import Stage
@@ -32,7 +32,9 @@ class ShopConfig(BaseSettings):
 
 class GPTConfig(BaseSettings):
     OPENAI_API_KEY: SecretStr
-    ASSISTANT_ID: SecretStr
+    MODEL: SecretStr = Field(
+        validation_alias=AliasChoices("GPT_MODEL", "GPT_ASSISTANT_ID", "MODEL", "ASSISTANT_ID")
+    )
 
     model_config = assign_config_dict(prefix="GPT_")
 

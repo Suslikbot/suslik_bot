@@ -24,6 +24,7 @@ from bot.internal.keyboards import (
     garden_delete_confirm_kb,
     garden_add_choice_kb,
     garden_species_confirm_kb,
+    garden_watering_confirm_kb,
     garden_list_kb,
     garden_welcome_kb,
     garden_plant_kb,
@@ -133,6 +134,14 @@ def status_emoji(status: str) -> str:
     if "рост" in normalized:
         return "🌿"
     return "🟢"
+
+
+def format_watering_recommendation_days(days: int) -> str:
+    if days % 10 == 1 and days % 100 != 11:
+        return f"{days} день"
+    if days % 10 in {2, 3, 4} and not 12 <= days % 100 <= 14:
+        return f"{days} дня"
+    return f"{days} дней"
 
 
 def format_next_watering(plant: GardenPlant) -> str:
@@ -263,13 +272,15 @@ async def garden_add_photo_received(
         "Определи вид растения по фото. Ответь ТОЛЬКО коротким названием растения на русском, "
         "без пояснений, без пунктуации и без дополнительных слов."
     )
-    guess = await openai_client.get_response_with_image(
+    guess, thread_id = await openai_client.get_response_with_image(
         thread_id=thread_id,
         text=prompt,
         image_bytes=image_bytes,
         message=message,
         fullname=user.fullname,
     )
+    user.ai_thread = thread_id
+    db_session.add(user)
 
     if not guess or guess.startswith("Превышены лимиты") or guess.startswith("Ошибка при обработке изображения"):
         await message.answer("Не удалось распознать растение по фото 😔\nНапиши название растения вручную.")
@@ -326,12 +337,65 @@ async def add_garden_plant(
     if not plant_name:
         await message.answer(garden_text["add_retry"])
         return
-    await state.update_data(garden_pending_plant_name=plant_name)
+    data = await state.get_data()
+    water_days = int(data.get("garden_watering_interval_days", 7))
+
+    await state.update_data(
+        garden_pending_plant_name=plant_name,
+        garden_watering_interval_days=max(1, water_days),
+    )
+    recommendation = format_watering_recommendation_days(max(1, water_days))
+    await state.set_state(GardenState.WAITING_WATERING_INTERVAL_CONFIRM)
+    await message.answer(
+        f"Рекомендую поливать это растение каждые {recommendation}. Подходит такая частота?",
+        reply_markup=garden_watering_confirm_kb(),
+    )
+
+    @router.callback_query(GardenCallbackFactory.filter(F.action == GardenAction.CONFIRM_WATERING_YES))
+    async def garden_confirm_watering_yes(
+            callback: CallbackQuery,
+            state: FSMContext,
+    ) -> None:
+        await callback.answer()
+        await state.set_state(GardenState.WAITING_LAST_WATERED_DATE)
+        await callback.message.answer(
+            "Когда вы поливали растение в последний раз?\nВведите дату в формате ДД.ММ.ГГГГ (например: 09.02.2026)."
+        )
+
+    @router.callback_query(GardenCallbackFactory.filter(F.action == GardenAction.CONFIRM_WATERING_CHANGE))
+    async def garden_confirm_watering_change(
+            callback: CallbackQuery,
+            state: FSMContext,
+    ) -> None:
+        await callback.answer()
+        await state.set_state(GardenState.WAITING_WATERING_INTERVAL_DAYS)
+        await callback.message.answer("Окей, укажи частоту полива в днях (например: 5).")
+
+
+
+@router.message(GardenState.WAITING_WATERING_INTERVAL_DAYS)
+async def garden_set_watering_interval_days(
+    message: Message,
+    state: FSMContext,
+) -> None:
+    raw_value = (message.text or "").strip()
+    if not raw_value.isdigit():
+        await message.answer("Нужно ввести число дней, например: 5.")
+        return
+
+    days = int(raw_value)
+    if days < 1 or days > 60:
+        await message.answer("Выберите значение от 1 до 60 дней.")
+        return
+
+    await state.update_data(garden_watering_interval_days=days)
     await state.set_state(GardenState.WAITING_LAST_WATERED_DATE)
     await message.answer(
+        f"Отлично, зафиксировал: каждые {format_watering_recommendation_days(days)}.\n"
         "Когда вы поливали растение в последний раз?\n"
         "Введите дату в формате ДД.ММ.ГГГГ (например: 09.02.2026)."
     )
+
 
 @router.message(GardenState.WAITING_LAST_WATERED_DATE)
 async def add_garden_plant_last_watered(
@@ -360,7 +424,7 @@ async def add_garden_plant_last_watered(
         return
 
     snapshot = data.get("garden_photo_snapshot") or {}
-    water_days = int(snapshot.get("water_days", 7)) if isinstance(snapshot, dict) else 7
+    water_days = int(data.get("garden_watering_interval_days", 7))
 
     plant = await add_plant(
         user.tg_id,

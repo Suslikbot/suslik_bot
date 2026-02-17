@@ -100,6 +100,21 @@ def garden_species_confirm_kb() -> InlineKeyboardMarkup:
     kb.adjust(1)
     return kb.as_markup()
 
+
+def garden_watering_confirm_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text="✅ Да, подходит",
+        callback_data=GardenCallbackFactory(action=GardenAction.CONFIRM_WATERING_YES).pack(),
+    )
+    kb.button(
+        text="✍️ Изменить частоту",
+        callback_data=GardenCallbackFactory(action=GardenAction.CONFIRM_WATERING_CHANGE).pack(),
+    )
+    kb.adjust(1)
+    return kb.as_markup()
+
+
 def garden_add_choice_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(

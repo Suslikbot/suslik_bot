@@ -139,10 +139,11 @@ async def ai_assistant_photo_handler(
     await message.forward(settings.bot.CHAT_LOG_ID)
 
     async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
-        response = await openai_client.get_response(thread_id, message.text, message, user.fullname)
+        response, thread_id = await openai_client.get_response(thread_id, message.text, message, user.fullname)
         if response is None:
             return
-
+        user.ai_thread = thread_id
+        db_session.add(user)
         cleaned_response = refactor_string(response)
         sent_messages = []
         for chunk in split_markdown_message(cleaned_response):
@@ -179,9 +180,11 @@ async def ai_assistant_voice_handler(
     await message.forward(settings.bot.CHAT_LOG_ID)
     async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
         transcription = await process_voice(message, openai_client)
-        response = await openai_client.get_response(thread_id, transcription, message, user.fullname)
+        response, thread_id = await openai_client.get_response(thread_id, transcription, message, user.fullname)
         if response is None:
             return
+        user.ai_thread = thread_id
+        db_session.add(user)
         cleaned_response = refactor_string(response)
         sent_messages = []
         for chunk in split_markdown_message(cleaned_response):
@@ -263,7 +266,7 @@ async def ai_assistant_photo_handler(
             )
             print(prompt_text)
 
-            response = await openai_client.get_response_with_image(
+            response, thread_id = await openai_client.get_response_with_image(
                 thread_id=thread_id,
                 text=prompt_text,
                 image_bytes=image_bytes,
@@ -273,7 +276,8 @@ async def ai_assistant_photo_handler(
 
             if response is None:
                 return
-
+            user.ai_thread = thread_id
+            db_session.add(user)
             cleaned_response = refactor_string(response)
             sent_messages = []
             for chunk in split_markdown_message(cleaned_response):
@@ -329,10 +333,11 @@ async def ai_assistant_text_handler(
     await message.forward(settings.bot.CHAT_LOG_ID)
 
     async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
-        response = await openai_client.get_response(thread_id, message.text, message, user.fullname)
+        response, thread_id = await openai_client.get_response(thread_id, message.text, message, user.fullname)
         if response is None:
             return
-
+        user.ai_thread = thread_id
+        db_session.add(user)
         cleaned_response = refactor_string(response)
         sent_messages = []
         for chunk in split_markdown_message(cleaned_response):

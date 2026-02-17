@@ -50,7 +50,7 @@ async def main():
     )
     openai_client = AIClient(
         token=settings.gpt.OPENAI_API_KEY.get_secret_value(),
-        assistant_id=settings.gpt.ASSISTANT_ID.get_secret_value(),
+        assistant_id=settings.gpt.MODEL.get_secret_value(),
     )
     redis_client = Redis(
         host=settings.redis.HOST,
@@ -92,6 +92,8 @@ async def main():
 
 def run_main():
     run(main())
+
+
 
 
 if __name__ == "__main__":

@@ -521,13 +521,15 @@ async def handle_plant_photo(
         bot=message.bot,
         chat_id=message.chat.id
     ):
-        response = await openai_client.get_response_with_image(
+        response, thread_id = await openai_client.get_response_with_image(
             thread_id=thread_id,
             text=PHOTO_ANALYSIS_USER_TEXT,
             image_bytes=image_bytes,
             message=message,
             fullname=user.fullname,
         )
+        user.ai_thread = thread_id
+        db_session.add(user)
 
     # 4️⃣ Если AI вернул ошибку или пустой ответ — остаёмся в WAITING_PLANT_PHOTO
     if (
@@ -839,7 +841,7 @@ async def build_rescue_plan(
     image_bytes = file_bytes.read()
 
     # OpenAI
-    response = await openai_client.get_response_with_image(
+    response, _ = await openai_client.get_response_with_image(
         thread_id=analysis.thread_id,
         text=PLAN_99_TEXT,
         image_bytes=image_bytes,
