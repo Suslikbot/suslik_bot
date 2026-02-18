@@ -89,8 +89,7 @@ class AIClient:
         retry: int = 0,
         max_retries: int = 3,
     ) -> tuple[str | None, str | None]:
-        del fullname
-        response_id = await self._safe_create_message(ai_thread_id, text, message, retry, max_retries)
+        response_id = await self._safe_create_message(ai_thread_id, text, message, fullname, retry, max_retries)
         if not response_id:
             return None, ai_thread_id
 
@@ -107,7 +106,6 @@ class AIClient:
         retry: int = 0,
         max_retries: int = 3,
     ) -> tuple[str | None, str | None]:
-        del fullname
         try:
             await self._ensure_thread_available(thread_id, message, fullname)
             content = [
@@ -118,7 +116,7 @@ class AIClient:
                 },
             ]
 
-            response_id = await self._safe_create_message(thread_id, content, message, retry, max_retries)
+            response_id = await self._safe_create_message(thread_id, content, message, fullname, retry, max_retries)
             if not response_id:
                 return None, thread_id
 
