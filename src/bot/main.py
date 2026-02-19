@@ -51,11 +51,14 @@ async def main():
     system_prompt = settings.gpt.SYSTEM_PROMPT.get_secret_value() if settings.gpt.SYSTEM_PROMPT else None
     if not system_prompt and settings.gpt.SYSTEM_PROMPT_FILE:
         prompt_path = Path(settings.gpt.SYSTEM_PROMPT_FILE)
+        if not prompt_path.exists() and len(prompt_path.parts) > 1:
+            prompt_path = Path(*prompt_path.parts[1:])
         if prompt_path.exists():
             system_prompt = prompt_path.read_text(encoding="utf-8").strip()
         else:
-            logging.warning("System prompt file not found: %s", prompt_path)
-
+            logging.warning("System prompt file not found: %s", settings.gpt.SYSTEM_PROMPT_FILE)
+    if not system_prompt:
+        logging.warning("GPT system prompt is empty; responses may become generic")
 
     openai_client = AIClient(
         token=settings.gpt.OPENAI_API_KEY.get_secret_value(),

@@ -38,18 +38,24 @@ class GPTConfig(BaseSettings):
         default="gpt-4.1-mini",
         validation_alias=AliasChoices(
             "GPT_MODEL",
-            "GPT_ASSISTANT_ID",
             "MODEL",
-            "ASSISTANT_ID",
             "OPENAI_MODEL",
         ),
     )
-    SYSTEM_PROMPT: SecretStr | None = None
-    SYSTEM_PROMPT_FILE: str | None = None
-    VECTOR_STORE_ID: SecretStr | None = None
+    SYSTEM_PROMPT: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GPT_SYSTEM_PROMPT", "SYSTEM_PROMPT"),
+    )
+    SYSTEM_PROMPT_FILE: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GPT_SYSTEM_PROMPT_FILE", "SYSTEM_PROMPT_FILE"),
+    )
+    VECTOR_STORE_ID: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GPT_VECTOR_STORE_ID", "VECTOR_STORE_ID"),
+    )
 
-
-model_config = assign_config_dict(prefix="GPT_")
+    model_config = assign_config_dict(prefix="GPT_")
 
 
 class RedisConfig(BaseSettings):
