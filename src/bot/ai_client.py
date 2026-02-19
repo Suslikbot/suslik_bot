@@ -14,9 +14,30 @@ logger = logging.getLogger(__name__)
 
 
 class AIClient:
-    def __init__(self, token: str, assistant_id: str):
+    def __init__(
+            self,
+            token: str,
+            model: str,
+            system_prompt: str | None = None,
+            vector_store_id: str | None = None,
+    ):
         self.client = AsyncOpenAI(api_key=token)
-        self.model = assistant_id
+        self.model = model
+        self.system_prompt = system_prompt
+        self.vector_store_id = vector_store_id
+
+    def _build_response_options(self) -> dict[str, object]:
+        options: dict[str, object] = {}
+        if self.system_prompt:
+            options["instructions"] = self.system_prompt
+        if self.vector_store_id:
+            options["tools"] = [
+                {
+                    "type": "file_search",
+                    "vector_store_ids": [self.vector_store_id],
+                }
+            ]
+        return options
 
     async def delete_thread(self, response_id: str):
         if not response_id.startswith("resp_"):
@@ -50,7 +71,9 @@ class AIClient:
                 model=self.model,
                 input=[{"role": "user", "content": content}],
                 previous_response_id=previous_response_id,
+                **self._build_response_options(),
             )
+            
         except BadRequestError as e:
             if "previous_response_id" in str(e):
                 logger.warning("Invalid response chain (retry=%s)", retry)
@@ -141,6 +164,7 @@ class AIClient:
             model=self.model,
             input=[{"role": "user", "content": context}],
             previous_response_id=self._normalize_previous_response_id(user.ai_thread) if use_existing_thread else None,
+            **self._build_response_options(),
         )
         thread_id = response.id
         user.ai_thread = thread_id

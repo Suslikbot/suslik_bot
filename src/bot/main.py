@@ -1,6 +1,6 @@
 import logging
 from asyncio import create_task, run
-
+from pathlib import Path
 import sentry_sdk
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -48,9 +48,20 @@ async def main():
         token=settings.bot.TOKEN.get_secret_value(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    system_prompt = settings.gpt.SYSTEM_PROMPT.get_secret_value() if settings.gpt.SYSTEM_PROMPT else None
+    if not system_prompt and settings.gpt.SYSTEM_PROMPT_FILE:
+        prompt_path = Path(settings.gpt.SYSTEM_PROMPT_FILE)
+        if prompt_path.exists():
+            system_prompt = prompt_path.read_text(encoding="utf-8").strip()
+        else:
+            logging.warning("System prompt file not found: %s", prompt_path)
+
+
     openai_client = AIClient(
         token=settings.gpt.OPENAI_API_KEY.get_secret_value(),
-        assistant_id=settings.gpt.MODEL.get_secret_value(),
+        model=settings.gpt.MODEL.get_secret_value(),
+        system_prompt=system_prompt,
+        vector_store_id=settings.gpt.VECTOR_STORE_ID.get_secret_value() if settings.gpt.VECTOR_STORE_ID else None,
     )
     redis_client = Redis(
         host=settings.redis.HOST,

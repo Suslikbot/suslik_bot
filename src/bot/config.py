@@ -31,12 +31,25 @@ class ShopConfig(BaseSettings):
 
 
 class GPTConfig(BaseSettings):
-    OPENAI_API_KEY: SecretStr
-    MODEL: SecretStr = Field(
-        validation_alias=AliasChoices("GPT_MODEL", "GPT_ASSISTANT_ID", "MODEL", "ASSISTANT_ID")
+    OPENAI_API_KEY: SecretStr = Field(
+        validation_alias=AliasChoices("GPT_OPENAI_API_KEY", "OPENAI_API_KEY")
     )
+    MODEL: SecretStr = Field(
+        default="gpt-4.1-mini",
+        validation_alias=AliasChoices(
+            "GPT_MODEL",
+            "GPT_ASSISTANT_ID",
+            "MODEL",
+            "ASSISTANT_ID",
+            "OPENAI_MODEL",
+        ),
+    )
+    SYSTEM_PROMPT: SecretStr | None = None
+    SYSTEM_PROMPT_FILE: str | None = None
+    VECTOR_STORE_ID: SecretStr | None = None
 
-    model_config = assign_config_dict(prefix="GPT_")
+
+model_config = assign_config_dict(prefix="GPT_")
 
 
 class RedisConfig(BaseSettings):
