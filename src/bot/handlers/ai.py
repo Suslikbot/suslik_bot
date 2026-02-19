@@ -15,6 +15,7 @@ from bot.controllers.base import (
     validate_image_limit,
     validate_message_length,
 )
+from bot.controllers.dialog_log import log_bot_response, log_user_request
 from bot.controllers.gpt import get_or_create_ai_thread
 from bot.controllers.user import check_action_limit
 from bot.controllers.voice import process_voice
@@ -180,12 +181,14 @@ async def ai_assistant_voice_handler(
     await message.forward(settings.bot.CHAT_LOG_ID)
     async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
         transcription = await process_voice(message, openai_client)
+        user_request_log = await log_user_request(user, transcription, db_session)
         response, thread_id = await openai_client.get_response(thread_id, transcription, message, user.fullname)
         if response is None:
             return
         user.ai_thread = thread_id
         db_session.add(user)
         cleaned_response = refactor_string(response)
+        await log_bot_response(user, cleaned_response, db_session, user_request_log.id)
         sent_messages = []
         for chunk in split_markdown_message(cleaned_response):
             msg_answer = await message.answer(chunk, parse_mode=ParseMode.MARKDOWN_V2)
@@ -245,7 +248,7 @@ async def ai_assistant_photo_handler(
     current_state = await state.get_state()
 
     if current_state == AIState.WAITING_PLANT_PHOTO:
-        user_text = forced_user_text
+        user_text = forced_user_text or message.caption or "Пользователь отправил изображение без дополнительного текста."
     else:
 
         user_text = "Пользователь отправил изображение без дополнительного текста."
@@ -264,7 +267,7 @@ async def ai_assistant_photo_handler(
             prompt_text = (
                 f"{user_text}\n\nОпиши, что на изображении, и ответь пользователю с учётом текущего контекста диалога."
             )
-            print(prompt_text)
+            user_request_log = await log_user_request(user, user_text, db_session)
 
             response, thread_id = await openai_client.get_response_with_image(
                 thread_id=thread_id,
@@ -279,6 +282,7 @@ async def ai_assistant_photo_handler(
             user.ai_thread = thread_id
             db_session.add(user)
             cleaned_response = refactor_string(response)
+            await log_bot_response(user, cleaned_response, db_session, user_request_log.id)
             sent_messages = []
             for chunk in split_markdown_message(cleaned_response):
                 msg_answer = await message.answer(chunk, parse_mode=ParseMode.MARKDOWN_V2)
@@ -333,12 +337,14 @@ async def ai_assistant_text_handler(
     await message.forward(settings.bot.CHAT_LOG_ID)
 
     async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
+        user_request_log = await log_user_request(user, message.text, db_session)
         response, thread_id = await openai_client.get_response(thread_id, message.text, message, user.fullname)
         if response is None:
             return
         user.ai_thread = thread_id
         db_session.add(user)
         cleaned_response = refactor_string(response)
+        await log_bot_response(user, cleaned_response, db_session, user_request_log.id)
         sent_messages = []
         for chunk in split_markdown_message(cleaned_response):
             msg_answer = await message.answer(chunk, parse_mode=ParseMode.MARKDOWN_V2)

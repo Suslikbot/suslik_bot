@@ -213,3 +213,30 @@ class PlantCareLog(Base):
     )
     action: Mapped[str] = mapped_column(String(32), nullable=False)
     comment: Mapped[str | None] = mapped_column(Text)
+
+class UserRequestLog(Base):
+    __tablename__ = "user_request_logs"
+
+    user_tg_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.tg_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    request_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class BotResponseLog(Base):
+    __tablename__ = "bot_response_logs"
+
+    user_tg_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.tg_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_request_log_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user_request_logs.id", ondelete="SET NULL"),
+        index=True,
+    )
+    response_text: Mapped[str] = mapped_column(Text, nullable=False)
