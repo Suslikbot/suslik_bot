@@ -1,0 +1,18 @@
+{
+  "fsm:238745838:238745838:state": "AIState:IN_AI_DIALOG",
+  "fsm:579421066:579421066:state": "AIState:IN_AI_DIALOG",
+  "fsm:216271410:216271410:state": "AIState:IN_AI_DIALOG",
+  "fsm:579421066:579421066:data": "{\"block_until\": null}",
+  "fsm:31215808:31215808:data": "{\"wait_reason\": \"onboarding_plant_photo\", \"onboarding_scenario\": \"rescue\", \"health_score\": 5}",
+  "fsm:-1003408023970:194126871:state": "AIState:WAITING_PLANT_PHOTO",
+  "fsm:216271410:216271410:data": "{\"block_until\": null}",
+  "fsm:238745838:238745838:data": "{\"block_until\": null}",
+  "fsm:342699578:342699578:data": "{\"block_until\": null, \"wait_reason\": \"onboarding_plant_photo\", \"onboarding_scenario\": \"rescue\", \"health_score\": 5}",
+  "fsm:194126871:194126871:state": "AIState:WAITING_PLANT_PHOTO",
+  "fsm:-1003408023970:342699578:state": "AIState:WAITING_PLANT_PHOTO",
+  "fsm:799525308:799525308:state": "AIState:WAITING_HOME_TIME",
+  "fsm:31215808:31215808:state": "AIState:WAITING_CITY",
+  "fsm:799525308:799525308:data": "{\"wait_reason\": \"onboarding_plant_photo\", \"onboarding_scenario\": \"rescue\", \"health_score\": 5}",
+  "fsm:194126871:194126871:data": "{\"block_until\": null, \"wait_reason\": \"onboarding_plant_photo\", \"onboarding_scenario\": \"rescue\", \"health_score\": 5}",
+  "fsm:342699578:342699578:state": "AIState:IN_AI_DIALOG"
+}
