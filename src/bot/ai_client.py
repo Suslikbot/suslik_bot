@@ -3,6 +3,7 @@ from asyncio import sleep
 from base64 import b64encode
 
 from aiogram.types import Message
+import openai
 from openai import AsyncOpenAI, BadRequestError
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,9 +23,19 @@ class AIClient:
             vector_store_id: str | None = None,
     ):
         self.client = AsyncOpenAI(api_key=token)
+        self._responses_api = getattr(self.client, "responses", None)
         self.model = model
         self.system_prompt = system_prompt
         self.vector_store_id = vector_store_id
+
+    def _get_responses_api(self):
+        if self._responses_api is None:
+            raise RuntimeError(
+                "Installed openai client does not expose AsyncOpenAI.responses. "
+                "Please upgrade openai package to a version with Responses API support. "
+                f"Current version: {openai.__version__}."
+            )
+        return self._responses_api
 
     def _build_response_options(self) -> dict[str, object]:
         options: dict[str, object] = {}
@@ -42,7 +53,8 @@ class AIClient:
     async def delete_thread(self, response_id: str):
         if not response_id.startswith("resp_"):
             return
-        await self.client.responses.delete(response_id)
+        responses_api = self._get_responses_api()
+        await responses_api.delete(response_id)
 
     @staticmethod
     def _normalize_previous_response_id(response_id: str | None) -> str | None:
@@ -66,8 +78,9 @@ class AIClient:
         max_retries: int = 3,
     ) -> str | None:
         previous_response_id = self._normalize_previous_response_id(response_id)
+        responses_api = self._get_responses_api()
         try:
-            response = await self.client.responses.create(
+            response = await responses_api.create(
                 model=self.model,
                 input=[{"role": "user", "content": content}],
                 previous_response_id=previous_response_id,
@@ -96,7 +109,8 @@ class AIClient:
         return None
 
     async def _run_thread_and_get_response(self, response_id: str) -> tuple[str | None, str]:
-        response = await self.client.responses.retrieve(response_id)
+        responses_api = self._get_responses_api()
+        response = await responses_api.retrieve(response_id)
         text_response = response.output_text
         if text_response:
             logger.debug(f"Response {response_id} returned: {text_response[:100]}...")
@@ -160,7 +174,8 @@ class AIClient:
         db_session: AsyncSession,
         use_existing_thread: bool = False,
     ) -> str:
-        response = await self.client.responses.create(
+        responses_api = self._get_responses_api()
+        response = await responses_api.create(
             model=self.model,
             input=[{"role": "user", "content": context}],
             previous_response_id=self._normalize_previous_response_id(user.ai_thread) if use_existing_thread else None,
