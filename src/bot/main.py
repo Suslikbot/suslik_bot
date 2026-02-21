@@ -69,6 +69,7 @@ async def main():
     redis_client = Redis(
         host=settings.redis.HOST,
         port=settings.redis.PORT,
+        db=settings.redis.DB,
         username=settings.redis.USERNAME,
         password=settings.redis.PASSWORD.get_secret_value(),
         decode_responses=True,

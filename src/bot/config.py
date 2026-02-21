@@ -61,6 +61,7 @@ class GPTConfig(BaseSettings):
 class RedisConfig(BaseSettings):
     HOST: str
     PORT: int
+    DB: int = 0
     USERNAME: str
     PASSWORD: SecretStr
 
