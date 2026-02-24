@@ -87,11 +87,22 @@ def garden_entry_kb() -> InlineKeyboardMarkup:
     kb.adjust(1)
     return kb.as_markup()
 
+def dialog_menu_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="🏡 Мой сад")]],
+        resize_keyboard=True,
+    )
+
+
 def garden_species_confirm_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(
         text="✅ Да, это оно",
         callback_data=GardenCallbackFactory(action=GardenAction.CONFIRM_GUESS_YES).pack(),
+    )
+    kb.button(
+        text="📸 Сделать фото ещё раз",
+        callback_data=GardenCallbackFactory(action=GardenAction.CONFIRM_GUESS_RETAKE).pack(),
     )
     kb.button(
         text="✍️ Нет, укажу вручную",

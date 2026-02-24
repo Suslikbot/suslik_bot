@@ -69,6 +69,7 @@ class GardenAction(StrEnum):
     ADD_WITHOUT_PHOTO = auto()
     CONFIRM_GUESS_YES = auto()
     CONFIRM_GUESS_NO = auto()
+    CONFIRM_GUESS_RETAKE = auto()
     CONFIRM_WATERING_YES = auto()
     CONFIRM_WATERING_CHANGE = auto()
     VIEW = auto()

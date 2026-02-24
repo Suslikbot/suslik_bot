@@ -1,13 +1,18 @@
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import GardenPlant, GardenPlantHistory
+from database.models import GardenPlant, GardenPlantHistory, GardenPlantPhoto
+
 
 
 DEFAULT_WATERING_INTERVAL_DAYS = 7
-DEFAULT_PLANT_STATUS = "Здоров"
+DEFAULT_PLANT_STATUS = "здоров"
+
+GARDEN_STATUS_CRITICAL = "критическое"
+GARDEN_STATUS_NEEDS_HELP = "нуждается в помощи"
+GARDEN_STATUS_HEALTHY = "здоров"
 
 
 async def list_user_plants(user_tg_id: int, db_session: AsyncSession) -> list[GardenPlant]:
@@ -29,28 +34,32 @@ async def get_plant(plant_id: int, user_tg_id: int, db_session: AsyncSession) ->
     return result.scalar_one_or_none()
 
 
-async def add_plant(
-    user_tg_id: int,
-    name: str,
+async def add_plant_photo(
+    plant_id: int,
+    file_path: str,
     db_session: AsyncSession,
-    watering_interval_days: int = DEFAULT_WATERING_INTERVAL_DAYS,
-) -> GardenPlant:
-    now = datetime.now(UTC)
-    next_watering_at = now + timedelta(days=watering_interval_days)
-    plant = GardenPlant(
-        user_tg_id=user_tg_id,
-        name=name,
-        status=DEFAULT_PLANT_STATUS,
-        watering_interval_days=watering_interval_days,
-        last_watered_at=None,
-        next_watering_at=next_watering_at,
-        notifications_enabled=True,
-        last_notification_at=None,
+    analysis: str | None = None,
+    is_primary: bool = True,
+) -> GardenPlantPhoto:
+    if is_primary:
+        await db_session.execute(
+            update(GardenPlantPhoto)
+            .where(
+                GardenPlantPhoto.plant_id == plant_id,
+                GardenPlantPhoto.is_primary.is_(True),
+            )
+            .values(is_primary=False)
+        )
+
+    photo = GardenPlantPhoto(
+        plant_id=plant_id,
+        file_path=file_path,
+        analysis=analysis,
+        is_primary=is_primary,
     )
-    db_session.add(plant)
+    db_session.add(photo)
     await db_session.flush()
-    await _add_history(plant.id, f"Добавлено в сад ({now:%d.%m})", db_session)
-    return plant
+    return photo
 
 
 async def rename_plant(plant: GardenPlant, new_name: str, db_session: AsyncSession) -> GardenPlant:
@@ -59,6 +68,22 @@ async def rename_plant(plant: GardenPlant, new_name: str, db_session: AsyncSessi
     await _add_history(plant.id, f"Переименовано в «{new_name}»", db_session)
     return plant
 
+async def add_plant_photo(
+    plant_id: int,
+    file_path: str,
+    db_session: AsyncSession,
+    analysis: str | None = None,
+    is_primary: bool = True,
+) -> GardenPlantPhoto:
+    photo = GardenPlantPhoto(
+        plant_id=plant_id,
+        file_path=file_path,
+        analysis=analysis,
+        is_primary=is_primary,
+    )
+    db_session.add(photo)
+    await db_session.flush()
+    return photo
 
 async def mark_plant_watered(plant: GardenPlant, db_session: AsyncSession) -> GardenPlant:
     now = datetime.now(UTC)

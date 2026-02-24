@@ -118,6 +118,19 @@ class GardenPlant(Base):
     notifications_enabled: Mapped[bool] = mapped_column(BOOLEAN, default=True, server_default="true")
     last_notification_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+class GardenPlantPhoto(Base):
+    __tablename__ = "garden_plant_photos"
+
+    plant_id: Mapped[int] = mapped_column(
+        ForeignKey("garden_plants.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    analysis: Mapped[str | None] = mapped_column(Text)
+    is_primary: Mapped[bool] = mapped_column(BOOLEAN, default=True, server_default="true")
+
+
 
 class GardenPlantHistory(Base):
     __tablename__ = "garden_plant_history"

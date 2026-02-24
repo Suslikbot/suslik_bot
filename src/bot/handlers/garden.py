@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
 import re
 from logging import getLogger
+from pathlib import Path
+from uuid import uuid4
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
@@ -11,16 +13,21 @@ from bot.controllers.garden import (
     add_plant,
     delete_plant,
     add_history_entry,
+    add_plant_photo,
     get_plant,
     get_recent_history,
     list_user_plants,
     mark_plant_watered,
     rename_plant,
     toggle_plant_notifications,
+    GARDEN_STATUS_CRITICAL,
+    GARDEN_STATUS_NEEDS_HELP,
+    GARDEN_STATUS_HEALTHY,
 )
 from bot.internal.callbacks import GardenCallbackFactory
 from bot.internal.enums import AIState, GardenAction, GardenState
 from bot.internal.keyboards import (
+    dialog_menu_kb,
     garden_delete_confirm_kb,
     garden_add_choice_kb,
     garden_species_confirm_kb,
@@ -38,6 +45,22 @@ from database.models import GardenPlant, User
 
 router = Router()
 logger = getLogger(__name__)
+DEFAULT_GARDEN_AVATAR_PATH = "src/bot/data/pitomnik.png"
+GARDEN_PHOTO_STORAGE_DIR = Path("storage/garden_photos")
+
+
+def normalize_garden_health_status(raw_status: str | None) -> str:
+    if not raw_status:
+        return GARDEN_STATUS_HEALTHY
+
+    normalized = raw_status.strip().lower()
+    if "крит" in normalized or "red" in normalized:
+        return GARDEN_STATUS_CRITICAL
+    if "помощ" in normalized or "yellow" in normalized or "желт" in normalized:
+        return GARDEN_STATUS_NEEDS_HELP
+    if "здоров" in normalized or "green" in normalized or "зелен" in normalized:
+        return GARDEN_STATUS_HEALTHY
+    return GARDEN_STATUS_HEALTHY
 
 def parse_plant_snapshot(snapshot_text: str) -> dict[str, str | int | None]:
     status_match = re.search(r"STATUS:\s*(.+)", snapshot_text)
@@ -84,7 +107,10 @@ async def post_payment_stay_dialog(
         settings.bot.CHAT_LOG_ID,
         f"[postpay_choice] user={user.tg_id} @{user.username} decision={decision_text} action_count={user.action_count}",
     )
-    await callback.message.answer("Отлично, остаёмся в режиме диалога 💬")
+    await callback.message.answer(
+        "Отлично, остаёмся в режиме диалога 💬",
+        reply_markup=dialog_menu_kb(),
+    )
 
 
 @router.callback_query(F.data == "postpay:open_garden")
@@ -128,11 +154,11 @@ def is_subscription_active(user: User) -> bool:
 
 
 def status_emoji(status: str) -> str:
-    normalized = status.lower()
-    if "леч" in normalized:
-        return "🩺"
-    if "рост" in normalized:
-        return "🌿"
+    normalized = normalize_garden_health_status(status)
+    if normalized == GARDEN_STATUS_CRITICAL:
+        return "🔴"
+    if normalized == GARDEN_STATUS_NEEDS_HELP:
+        return "🟡"
     return "🟢"
 
 
@@ -202,6 +228,18 @@ async def open_garden(
         return
     await show_garden_list(callback.message, user, db_session)
 
+@router.message(AIState.IN_AI_DIALOG, F.text == "🏡 Мой сад")
+async def open_garden_from_dialog_menu(
+    message: Message,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
+    if not is_subscription_active(user):
+        await message.answer(garden_text["paywall"], reply_markup=subscription_kb())
+        return
+    await show_garden_list(message, user, db_session)
+
+
 
 @router.callback_query(GardenCallbackFactory.filter(F.action == GardenAction.ADD))
 async def add_garden_plant_prompt(
@@ -229,6 +267,11 @@ async def add_garden_plant_with_photo(
     if not is_subscription_active(user):
         await callback.message.answer(garden_text["paywall"], reply_markup=subscription_kb())
         return
+    await state.update_data(
+        garden_photo_file_path=DEFAULT_GARDEN_AVATAR_PATH,
+        garden_photo_analysis="Фото не предоставлено пользователем.",
+        garden_health_status=GARDEN_STATUS_HEALTHY,
+    )
     await state.set_state(GardenState.WAITING_NEW_PLANT_PHOTO)
     await callback.message.answer("Отлично! Пришли фото растения 📸")
 
@@ -266,7 +309,10 @@ async def garden_add_photo_received(
     file_info = await message.bot.get_file(photo.file_id)
     file_bytes = await message.bot.download_file(file_info.file_path)
     image_bytes = file_bytes.read()
-
+    extension = Path(file_info.file_path or "").suffix or ".jpg"
+    GARDEN_PHOTO_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    photo_path = GARDEN_PHOTO_STORAGE_DIR / f"{user.tg_id}_{uuid4().hex}{extension}"
+    photo_path.write_bytes(image_bytes)
     thread_id = await get_or_create_ai_thread(user, openai_client, db_session)
     prompt = (
         "Определи вид растения по фото. Ответь ТОЛЬКО коротким названием растения на русском, "
@@ -279,9 +325,28 @@ async def garden_add_photo_received(
         message=message,
         fullname=user.fullname,
     )
+    health_prompt = (
+        "Оцени здоровье растения на фото. "
+        "Ответь ТОЛЬКО одним словом: КРИТИЧЕСКОЕ или ПОМОЩЬ или ЗДОРОВ."
+    )
+    health_raw, thread_id = await openai_client.get_response_with_image(
+        thread_id=thread_id,
+        text=health_prompt,
+        image_bytes=image_bytes,
+        message=message,
+        fullname=user.fullname,
+    )
+    health_status = normalize_garden_health_status(health_raw)
     user.ai_thread = thread_id
     db_session.add(user)
-
+    await state.update_data(
+        garden_photo_file_path=str(photo_path),
+        garden_photo_analysis=(
+            f"AI-определение по фото: {guess.strip() if guess else 'не получено'}\n"
+            f"AI-оценка здоровья: {health_status}"
+        ),
+        garden_health_status=health_status,
+    )
     if not guess or guess.startswith("Превышены лимиты") or guess.startswith("Ошибка при обработке изображения"):
         await message.answer("Не удалось распознать растение по фото 😔\nНапиши название растения вручную.")
         await state.set_state(GardenState.WAITING_PLANT_NAME)
@@ -315,7 +380,14 @@ async def garden_confirm_guess_no(
     await state.set_state(GardenState.WAITING_PLANT_NAME)
     await callback.message.answer("Хорошо, тогда напиши название растения вручную.")
 
-
+@router.callback_query(GardenCallbackFactory.filter(F.action == GardenAction.CONFIRM_GUESS_RETAKE))
+async def garden_confirm_guess_retake(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    await callback.answer()
+    await state.set_state(GardenState.WAITING_NEW_PLANT_PHOTO)
+    await callback.message.answer("Окей, сделай новое фото растения 📸")
 
 @router.message(GardenState.WAITING_NEW_PLANT_PHOTO)
 async def garden_add_photo_retry(
@@ -425,15 +497,26 @@ async def add_garden_plant_last_watered(
 
     snapshot = data.get("garden_photo_snapshot") or {}
     water_days = int(data.get("garden_watering_interval_days", 7))
-
+    photo_analysis = data.get("garden_photo_analysis")
+    photo_file_path = data.get("garden_photo_file_path")
+    health_status = normalize_garden_health_status(data.get("garden_health_status"))
     plant = await add_plant(
         user.tg_id,
         plant_name,
         db_session,
         watering_interval_days=water_days,
     )
+    if photo_file_path:
+        await add_plant_photo(
+            plant_id=plant.id,
+            file_path=str(photo_file_path),
+            db_session=db_session,
+            analysis=photo_analysis,
+            is_primary=True,
+        )
+    plant.status = health_status
     if isinstance(snapshot, dict) and snapshot.get("status"):
-        plant.status = str(snapshot["status"])
+        plant.status = normalize_garden_health_status(str(snapshot["status"]))
 
     plant.last_watered_at = parsed_date
     plant.next_watering_at = parsed_date + timedelta(days=plant.watering_interval_days)
