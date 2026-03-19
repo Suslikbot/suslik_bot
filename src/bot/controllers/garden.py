@@ -33,6 +33,29 @@ async def get_plant(plant_id: int, user_tg_id: int, db_session: AsyncSession) ->
     )
     return result.scalar_one_or_none()
 
+async def add_plant(
+    user_tg_id: int,
+    name: str,
+    db_session: AsyncSession,
+    watering_interval_days: int = DEFAULT_WATERING_INTERVAL_DAYS,
+) -> GardenPlant:
+    now = datetime.now(UTC)
+    next_watering_at = now + timedelta(days=watering_interval_days)
+    plant = GardenPlant(
+        user_tg_id=user_tg_id,
+        name=name,
+        status=DEFAULT_PLANT_STATUS,
+        watering_interval_days=watering_interval_days,
+        last_watered_at=None,
+        next_watering_at=next_watering_at,
+        notifications_enabled=True,
+        last_notification_at=None,
+    )
+    db_session.add(plant)
+    await db_session.flush()
+    await _add_history(plant.id, f"Добавлено в сад ({now:%d.%m})", db_session)
+    return plant
+
 
 async def add_plant_photo(
     plant_id: int,
@@ -68,22 +91,6 @@ async def rename_plant(plant: GardenPlant, new_name: str, db_session: AsyncSessi
     await _add_history(plant.id, f"Переименовано в «{new_name}»", db_session)
     return plant
 
-async def add_plant_photo(
-    plant_id: int,
-    file_path: str,
-    db_session: AsyncSession,
-    analysis: str | None = None,
-    is_primary: bool = True,
-) -> GardenPlantPhoto:
-    photo = GardenPlantPhoto(
-        plant_id=plant_id,
-        file_path=file_path,
-        analysis=analysis,
-        is_primary=is_primary,
-    )
-    db_session.add(photo)
-    await db_session.flush()
-    return photo
 
 async def mark_plant_watered(plant: GardenPlant, db_session: AsyncSession) -> GardenPlant:
     now = datetime.now(UTC)

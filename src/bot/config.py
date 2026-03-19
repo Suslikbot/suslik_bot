@@ -18,6 +18,8 @@ class BotConfig(BaseSettings):
     PICTURES_WINDOW_DAYS: int
     USERS_THRESHOLD: int
     STAGE: Stage
+    WATERING_WORKER_INTERVAL_SECONDS: int = 60
+    WATERING_TEST_REPEAT_MINUTES: int = 0
 
     model_config = assign_config_dict(prefix="BOT_")
 

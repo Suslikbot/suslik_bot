@@ -1,5 +1,5 @@
 import logging
-from asyncio import create_task, run
+from asyncio import run
 from pathlib import Path
 import sentry_sdk
 from aiogram import Bot, Dispatcher
@@ -12,7 +12,6 @@ from bot.handlers.onboarding_callbacks import router as onboarding_callbacks_rou
 
 from bot.ai_client import AIClient
 from bot.config import get_settings
-from bot.controllers.base import daily_routine
 from bot.handlers.ai import router as ai_router
 from bot.handlers.base import router as base_router
 from bot.handlers.command import router as commands_router
@@ -99,8 +98,6 @@ async def main():
         # onboarding_callbacks_router,
         error_router,
     )
-    # noinspection PyUnusedLocal
-    daily_task = create_task(daily_routine(bot, settings, dispatcher, db))
     logging.info("suslik robot started")
     await dispatcher.start_polling(bot, skip_updates=True)
 

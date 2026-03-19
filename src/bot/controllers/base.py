@@ -1,8 +1,8 @@
+import logging
+import re
 from asyncio import sleep
 from datetime import UTC, datetime, timedelta
-import logging
 from random import randint
-import re
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.context import FSMContext
@@ -11,7 +11,6 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import Settings
-from bot.controllers.garden import get_due_plants, mark_notified, should_notify
 from bot.controllers.payments import create_recurrent_payment
 from bot.controllers.user import (
     get_all_users_with_active_subscription,
@@ -19,8 +18,8 @@ from bot.controllers.user import (
 )
 from bot.internal.consts import BLOCK_DURATION, MAX_MESSAGE_LENGTH
 from bot.internal.enums import PaidEntity, PaymentType
-from bot.internal.keyboards import garden_plant_kb, subscription_kb
-from bot.internal.lexicon import garden_text, support_text
+from bot.internal.keyboards import subscription_kb
+from bot.internal.lexicon import support_text
 from database.database_connector import DatabaseConnector
 from database.models import Payment
 
@@ -149,18 +148,6 @@ async def daily_routine(
                     else:
                         logger.error(f"error with payment for {user}: {payment.status}")
                     session.add(new_payment)
-                    due_plants = await get_due_plants(user.tg_id, session, utcnow)
-                    for plant in due_plants:
-                        if not should_notify(plant, utcnow):
-                            continue
-                        await bot.send_message(
-                            chat_id=user.tg_id,
-                            text=garden_text["watering_reminder"].format(name=plant.name),
-                            reply_markup=garden_plant_kb(plant.id),
-                            disable_notification=True,
-                        )
-                        await mark_notified(plant, session, utcnow)
-                        await sleep(0.1)
             await session.commit()
 
 

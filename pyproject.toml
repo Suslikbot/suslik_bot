@@ -30,6 +30,7 @@ dependencies = [
 [project.scripts]
 bot-run = "bot.main:run_main"
 webapp-run = "webapp.main:run_main"
+watering-worker-run = "bot.watering_worker:run_main"
 
 [tool.ruff]
 line-length = 119
