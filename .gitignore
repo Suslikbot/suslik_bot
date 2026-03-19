@@ -253,3 +253,4 @@ share/
 __pycache__
 .idea
 src/leadtgbot.egg-info
+storage/garden_photos/
