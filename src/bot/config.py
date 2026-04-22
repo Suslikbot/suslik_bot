@@ -1,4 +1,5 @@
 from functools import cache
+from pathlib import Path
 
 from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings
@@ -12,6 +13,10 @@ class BotConfig(BaseSettings):
     ADMINS: list[int]
     SENTRY_DSN: SecretStr | None = None
     CHAT_LOG_ID: int
+    SUPPORT_CHAT_ID: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("BOT_SUPPORT_CHAT_ID", "SUPPORT_CHAT_ID"),
+    )
     UTC_STARTING_MARK: int
     ACTIONS_THRESHOLD: int
     PICTURES_THRESHOLD: int
@@ -101,4 +106,5 @@ class Settings(BaseSettings):
 
 @cache
 def get_settings() -> Settings:
-    return Settings()
+    project_root_env = Path(__file__).resolve().parents[2] / ".env"
+    return Settings(_env_file=(project_root_env, ".env"))

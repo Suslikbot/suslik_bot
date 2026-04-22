@@ -1,15 +1,16 @@
 from asyncio import sleep
 from datetime import datetime, timedelta
+from html import escape
 from logging import getLogger
 from random import randint
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
-from aiogram.types import FSInputFile, Message
+from aiogram.types import CallbackQuery, FSInputFile, Message
 from aiogram.utils.chat_action import ChatActionSender
 from sqlalchemy.ext.asyncio import AsyncSession
-from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from bot.config import Settings
 from bot.controllers.statistics import (
     build_stats_snapshot,
@@ -19,8 +20,8 @@ from bot.controllers.statistics import (
 )
 from bot.controllers.base import imitate_typing
 from bot.controllers.user import ask_next_question, get_user_counter
-from bot.internal.enums import AIState, Form
-from bot.internal.keyboards import cancel_autopayment_kb, subscription_kb
+from bot.internal.enums import AIState, Form, SupportState
+from bot.internal.keyboards import support_kb, support_request_kb
 from bot.internal.lexicon import replies, support_text, WELCOME_BY_SOURCE
 from database.models import User, UserCounters
 from sqlalchemy import select
@@ -33,6 +34,15 @@ from dateutil.relativedelta import relativedelta
 
 router = Router()
 logger = getLogger(__name__)
+
+async def restore_support_context(state: FSMContext, support_context: dict) -> None:
+    previous_state = support_context.get("support_prev_state")
+    previous_data = support_context.get("support_prev_data") or {}
+    if previous_state:
+        await state.set_state(previous_state)
+        await state.set_data(previous_data)
+    else:
+        await state.clear()
 
 
 @router.message(Command("start", "support", "share"))
@@ -126,18 +136,89 @@ async def command_handler(
                 user_counter: UserCounters = await get_user_counter(user.tg_id, db_session)
                 photos = settings.bot.PICTURES_THRESHOLD - user_counter.image_count
                 await message.answer_photo(
-                    picture,
-                    support_text["subscribed"].format(days=days, photos=photos),
-                    reply_markup=cancel_autopayment_kb(),
+                    photo=picture,
+                    caption=support_text["subscribed"].format(days=days, photos=photos),
+                    reply_markup=support_kb(is_subscribed=True),
                 )
             else:
                 await message.answer_photo(
-                    picture,
-                    support_text["unsubscribed"].format(actions=(settings.bot.ACTIONS_THRESHOLD - user.action_count)),
-                    reply_markup=subscription_kb(),
+                    photo=picture,
+                    caption=support_text["unsubscribed"].format(
+                        actions=(settings.bot.ACTIONS_THRESHOLD - user.action_count)),
+                    reply_markup=support_kb(is_subscribed=False),
                 )
         case "share":
             await message.answer("Выберите, кому хотите подарить подписку", reply_markup=contact_kb)
+
+@router.callback_query(F.data == "support:write")
+async def start_support_request(callback: CallbackQuery, state: FSMContext) -> None:
+    previous_state = await state.get_state()
+    previous_data = await state.get_data()
+    if previous_state != SupportState.WAITING_REQUEST_TEXT.state:
+        await state.update_data(
+            support_prev_state=previous_state,
+            support_prev_data=previous_data,
+        )
+    await state.set_state(SupportState.WAITING_REQUEST_TEXT)
+    await callback.message.answer(
+        support_text["request_prompt"],
+        reply_markup=support_request_kb(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "support:cancel")
+async def cancel_support_request(callback: CallbackQuery, state: FSMContext) -> None:
+    support_context = await state.get_data()
+    await restore_support_context(state, support_context)
+    await callback.message.answer(support_text["request_cancelled"])
+    await callback.answer()
+
+
+@router.message(SupportState.WAITING_REQUEST_TEXT, F.text)
+async def receive_support_request(
+    message: Message,
+    user: User,
+    settings: Settings,
+    state: FSMContext,
+) -> None:
+    support_context = await state.get_data()
+    support_chat_id = settings.bot.SUPPORT_CHAT_ID
+    if support_chat_id is None:
+        logger.error("SUPPORT_CHAT_ID is not configured, support request from user %s was not forwarded", user.tg_id)
+        await message.answer("⚠️ Поддержка временно недоступна. Попробуйте позже.")
+        return
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+    username = f"@{user.username}" if user.username else "без username"
+    request_text = escape(message.text)
+    try:
+        await message.bot.send_message(
+            chat_id=support_chat_id,
+            text=(
+                "🆘 <b>Новое обращение в поддержку</b>\n"
+                f"👤 <b>Пользователь:</b> {escape(user.fullname)} ({username})\n"
+                f"🆔 <b>TG ID:</b> <code>{user.tg_id}</code>\n"
+                f"🕒 <b>Время:</b> {timestamp}\n\n"
+                f"💬 <b>Текст обращения:</b>\n{request_text}"
+            ),
+        )
+    except Exception:
+        logger.exception("Failed to send support request to chat %s for user %s", support_chat_id, user.tg_id)
+        await message.answer(
+            support_text["request_send_error"],
+            reply_markup=support_request_kb(),
+        )
+        return
+
+    await restore_support_context(state, support_context)
+    await message.answer(support_text["request_sent"])
+
+
+@router.message(SupportState.WAITING_REQUEST_TEXT)
+async def receive_support_request_non_text(message: Message) -> None:
+    await message.answer(support_text["request_text_only"])
+
+
 
 
 @router.message(Command("static"))

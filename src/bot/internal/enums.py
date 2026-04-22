@@ -26,6 +26,8 @@ class GardenState(StatesGroup):
     WAITING_PLANT_RENAME = State()
     IN_GARDEN_STUB = State()
 
+class SupportState(StatesGroup):
+    WAITING_REQUEST_TEXT = State()
 
 class PaidEntity(StrEnum):
     ONE_MONTH_SUBSCRIPTION = auto()

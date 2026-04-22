@@ -56,6 +56,41 @@ def cancel_autopayment_kb() -> InlineKeyboardMarkup:
     kb.adjust(1)
     return kb.as_markup()
 
+def support_kb(is_subscribed: bool) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    if is_subscribed:
+        kb.button(
+            text="Отмена подписки",
+            callback_data=SubscriptionActionsCallbackFactory(action=SubscriptionAction.CANCEL_SUB_DIALOG).pack(),
+        )
+    else:
+        kb.button(
+            text="Месяц",
+            callback_data=PaidEntityCallbackFactory(entity=PaidEntity.ONE_MONTH_SUBSCRIPTION).pack(),
+        )
+        kb.button(
+            text="Годовая подписка",
+            callback_data=PaidEntityCallbackFactory(entity=PaidEntity.ONE_YEAR_SUBSCRIPTION).pack(),
+        )
+    kb.button(
+        text="Подарить годовую подписку",
+        callback_data=SubscriptionActionsCallbackFactory(action=SubscriptionAction.GIFT_SUB).pack(),
+    )
+    kb.button(
+        text="✍️ Написать в техподдержку",
+        callback_data="support:write",
+    )
+    kb.adjust(1)
+    return kb.as_markup()
+
+def support_request_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text="❌ Отмена",
+        callback_data="support:cancel",
+    )
+    return kb.as_markup()
+
 
 def autopayment_cancelled_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()

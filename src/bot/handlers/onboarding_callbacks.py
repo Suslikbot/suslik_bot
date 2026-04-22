@@ -18,6 +18,7 @@ from bot.handlers.ai import ai_assistant_photo_handler
 from logging import getLogger
 
 from aiogram import F, Router
+from aiogram.filters import StateFilter
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.types import FSInputFile, Message
@@ -134,10 +135,6 @@ async def waiting_plant_photo_text(message: Message):
     )
 
 FLAG_RE = re.compile(r"^\s*(PLANT|QUALITY)\s*:\s*(YES|NO|GOOD|BAD)\s*$", re.IGNORECASE | re.MULTILINE)
-@router.message(AIState.WAITING_PLANT_PHOTO, F.text)
-async def DEBUG_ALL_TEXT(message: Message, state: FSMContext):
-    current = await state.get_state()
-    print("DEBUG TEXT:", message.text, "STATE:", current)
 
 def extract_flags(text: str) -> tuple[str | None, str | None]:
     plant = None
@@ -359,6 +356,7 @@ async def handle_home_time(callback: CallbackQuery, state: FSMContext, user: Use
         )
         await state.set_state(AIState.WAITING_PLANT_PHOTO)
     else:
+        await state.set_state(AIState.WAITING_CONFIRM_HOME)
         asyncio.create_task(
             schedule_reminder(
                 callback.message.bot,
@@ -388,7 +386,7 @@ async def schedule_reminder(bot, chat_id: int, remind_at: datetime):
 
 from aiogram.types import CallbackQuery
 
-@router.callback_query(F.data == "home:yes")
+@router.callback_query(StateFilter(AIState.WAITING_HOME_TIME, AIState.WAITING_CONFIRM_HOME), F.data == "home:yes")
 async def confirm_home(callback: CallbackQuery, state: FSMContext, user: User, settings: Settings):
     prompt_text = await enter_waiting_plant_photo(callback.message, state)
     await log_onboarding_step(
@@ -403,7 +401,7 @@ async def confirm_home(callback: CallbackQuery, state: FSMContext, user: User, s
     await safe_callback_answer(callback)
 
 
-# @router.callback_query(F.data == "home:yes")
+# @router.callback_query(StateFilter(AIState.WAITING_HOME_TIME, AIState.WAITING_CONFIRM_HOME), F.data == "home:yes")
 # async def confirm_home(callback: CallbackQuery, state: FSMContext):
     # 1. Подтверждаем
 #    await callback.message.answer(
@@ -722,7 +720,7 @@ async def handle_skip_onboarding(
     settings: Settings,
     openai_client=None):
     #  ️Устанавливаем action_count = 3
-    if user.ai_thread:
+    if user.ai_thread and openai_client:
         await openai_client.delete_thread(user.ai_thread)
         user.ai_thread = None
     user.action_count += 2
@@ -786,7 +784,7 @@ async def handle_paywall_from_onboarding(
     db_session: AsyncSession,
     openai_client=None
 ):
-    if user.ai_thread:
+    if user.ai_thread and openai_client:
         await openai_client.delete_thread(user.ai_thread)
         user.ai_thread = None
     user.action_count = 5
