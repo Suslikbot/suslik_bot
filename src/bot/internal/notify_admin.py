@@ -11,9 +11,13 @@ logger = logging.getLogger(__name__)
 
 async def on_startup(bot: Bot, settings: Settings):
     folder = os.path.basename(os.getcwd())
+    # MVP-SUB-7: команды в меню остаются статичными (без динамического скрытия по подписке).
+    # Ограничения доступа контролируются в handlers/guards.
     await bot.set_my_commands(
         [
             BotCommand(command="start", description="Запустить бота"),
+            BotCommand(command="dialog", description="Режим AI-диалога"),
+            BotCommand(command="garden", description="Раздел «Мой сад»"),
             BotCommand(command="support", description="Техническая поддержка"),
         ]
     )
