@@ -19,7 +19,20 @@ class FakeSession:
     def add(self, obj) -> None:
         self.added.append(obj)
 
+@pytest.mark.anyio
+async def test_update_user_expiration_creates_new_subscription_when_absent() -> None:
+    session = FakeSession()
+    user = SimpleNamespace(tg_id=1, expired_at=None, is_subscribed=False)
+    before_call = datetime.now(UTC)
 
+    new_expired_at = await update_user_expiration(user, relativedelta(days=30), session)
+
+    assert new_expired_at >= before_call + relativedelta(days=30)
+    assert user.expired_at == new_expired_at
+    assert user.is_subscribed is True
+    assert session.added == [user]
+
+    
 @pytest.mark.anyio
 async def test_update_user_expiration_extends_from_current_expired_at_when_active() -> None:
     session = FakeSession()
