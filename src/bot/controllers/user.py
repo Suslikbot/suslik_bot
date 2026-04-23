@@ -14,6 +14,14 @@ from database.models import UserCounters
 
 logger = logging.getLogger(__name__)
 
+def has_active_subscription(user: BotUser, now_utc: datetime) -> bool:
+    return (
+        user.is_subscribed is True
+        and user.expired_at is not None
+        and user.expired_at > now_utc
+    )
+
+
 # new function add_user_to_db
 async def add_user_to_db(user, db_session: AsyncSession, source: str | None = None) -> BotUser:
     new_user = BotUser(

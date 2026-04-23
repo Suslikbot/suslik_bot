@@ -24,6 +24,7 @@ from bot.controllers.garden import (
     GARDEN_STATUS_NEEDS_HELP,
     GARDEN_STATUS_HEALTHY,
 )
+from bot.controllers.user import has_active_subscription
 from bot.internal.callbacks import GardenCallbackFactory
 from bot.internal.enums import AIState, GardenAction, GardenState
 from bot.internal.keyboards import (
@@ -143,14 +144,6 @@ async def post_payment_open_garden_stub(
     )
 
 
-def is_subscription_active(user: User) -> bool:
-    if not user.is_subscribed or not user.expired_at:
-        return False
-    now = datetime.now(UTC)
-    expired_at = user.expired_at
-    if expired_at.tzinfo is None:
-        expired_at = expired_at.replace(tzinfo=UTC)
-    return expired_at > now
 
 
 def status_emoji(status: str) -> str:
@@ -223,7 +216,7 @@ async def open_garden(
     db_session: AsyncSession,
 ) -> None:
     await callback.answer()
-    if not is_subscription_active(user):
+    if not has_active_subscription(user, datetime.now(UTC)):
         await callback.message.answer(garden_text["paywall"], reply_markup=subscription_kb())
         return
     await show_garden_list(callback.message, user, db_session)
@@ -234,7 +227,7 @@ async def open_garden_from_dialog_menu(
     user: User,
     db_session: AsyncSession,
 ) -> None:
-    if not is_subscription_active(user):
+    if not has_active_subscription(user, datetime.now(UTC)):
         await message.answer(garden_text["paywall"], reply_markup=subscription_kb())
         return
     await show_garden_list(message, user, db_session)
@@ -248,7 +241,7 @@ async def add_garden_plant_prompt(
     user: User,
 ) -> None:
     await callback.answer()
-    if not is_subscription_active(user):
+    if not has_active_subscription(user, datetime.now(UTC)):
         await callback.message.answer(garden_text["paywall"], reply_markup=subscription_kb())
         return
     await state.set_state(GardenState.WAITING_ADD_PLANT_CHOICE)
@@ -264,7 +257,7 @@ async def add_garden_plant_with_photo(
     user: User,
 ) -> None:
     await callback.answer()
-    if not is_subscription_active(user):
+    if not has_active_subscription(user, datetime.now(UTC)):
         await callback.message.answer(garden_text["paywall"], reply_markup=subscription_kb())
         return
     await state.update_data(
@@ -283,7 +276,7 @@ async def add_garden_plant_without_photo(
     user: User,
 ) -> None:
     await callback.answer()
-    if not is_subscription_active(user):
+    if not has_active_subscription(user, datetime.now(UTC)):
         await callback.message.answer(garden_text["paywall"], reply_markup=subscription_kb())
         return
     await state.set_state(GardenState.WAITING_PLANT_NAME)
@@ -300,7 +293,7 @@ async def garden_add_photo_received(
     db_session: AsyncSession,
     openai_client: AIClient,
 ) -> None:
-    if not is_subscription_active(user):
+    if not has_active_subscription(user, datetime.now(UTC)):
         await message.answer(garden_text["paywall"], reply_markup=subscription_kb())
         await state.clear()
         return
@@ -401,7 +394,7 @@ async def add_garden_plant(
     state: FSMContext,
     user: User,
 ) -> None:
-    if not is_subscription_active(user):
+    if not has_active_subscription(user, datetime.now(UTC)):
         await message.answer(garden_text["paywall"], reply_markup=subscription_kb())
         await state.clear()
         return
@@ -476,7 +469,7 @@ async def add_garden_plant_last_watered(
     user: User,
     db_session: AsyncSession,
 ) -> None:
-    if not is_subscription_active(user):
+    if not has_active_subscription(user, datetime.now(UTC)):
         await message.answer(garden_text["paywall"], reply_markup=subscription_kb())
         await state.clear()
         return
@@ -610,7 +603,7 @@ async def rename_plant_handler(
     user: User,
     db_session: AsyncSession,
 ) -> None:
-    if not is_subscription_active(user):
+    if not has_active_subscription(user, datetime.now(UTC)):
         await message.answer(garden_text["paywall"], reply_markup=subscription_kb())
         await state.clear()
         return
