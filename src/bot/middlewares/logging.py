@@ -1,5 +1,6 @@
 import functools
 import logging
+from time import perf_counter
 from uuid import uuid4
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -31,10 +32,15 @@ class LoggingMiddleware(BaseMiddleware):
             state=state,
             operation=name,
         )
+        started_at = perf_counter()
         try:
             logger.info(f"calling {name}")
             return await handler(event, data)
+        except Exception:
+            logger.exception("handler failed", extra={"duration_ms": round((perf_counter() - started_at) * 1000, 2)})
+            raise
         finally:
+            logger.info("handler completed", extra={"duration_ms": round((perf_counter() - started_at) * 1000, 2)})
             reset_log_context(token)
 
     def _get_name(self, handler):

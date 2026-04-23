@@ -59,10 +59,16 @@ def reset_log_context(token: Any) -> None:
 
 
 class LogContextFilter(logging.Filter):
+    def __init__(self, service: str = "-"):
+        super().__init__()
+        self._service = service
+
     def filter(self, record: logging.LogRecord) -> bool:
         context = get_log_context()
+        record.service = self._service
         record.correlation_id = context.correlation_id or "-"
         record.user_id = context.user_id or "-"
         record.state = context.state or "-"
         record.operation = context.operation or "-"
+        record.duration_ms = getattr(record, "duration_ms", None)
         return True

@@ -26,21 +26,28 @@ class JsonFormatter(logging.Formatter):
         return ct.isoformat(timespec="milliseconds")
 
     def format(self, record):
+        error_type = None
+        error_message = None
+        error_stack = None
+        if record.exc_info:
+            exc_type, exc_value, _ = record.exc_info
+            error_type = exc_type.__name__ if exc_type else None
+            error_message = str(exc_value) if exc_value else None
+            error_stack = self.formatException(record.exc_info)
         payload = {
-            "timestamp": self.formatTime(record),
+            "ts": self.formatTime(record),
             "level": record.levelname,
-            "logger": record.name,
-            "module": record.module,
-            "function": record.funcName,
-            "line": record.lineno,
+            "service": getattr(record, "service", record.name),
+            "operation": getattr(record, "operation", "-"),
             "correlation_id": getattr(record, "correlation_id", "-"),
             "user_id": getattr(record, "user_id", "-"),
             "state": getattr(record, "state", "-"),
-            "operation": getattr(record, "operation", "-"),
             "message": record.getMessage(),
+            "duration_ms": getattr(record, "duration_ms", None),
+            "error.type": error_type,
+            "error.message": error_message,
+            "error.stack": error_stack,
         }
-        if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=False)
 
 
@@ -84,6 +91,7 @@ def get_logging_config(app_name: str, stage: Stage):
         "filters": {
             "log_context": {
                 "()": LogContextFilter,
+                "service": app_name,
             },
         },
         "handlers": {
