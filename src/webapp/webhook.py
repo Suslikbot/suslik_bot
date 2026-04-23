@@ -39,7 +39,7 @@ class YooKassaEvent(BaseModel):
     event: str
     object: dict
 
-
+@router.post("")
 @router.post("/")
 async def yookassa_webhook(
     request: Request,
@@ -94,6 +94,27 @@ async def yookassa_webhook(
                 await db_session.flush()
                 if not was_paid:
                     logger.info(build_stat_message("Payment_success", payment.user_tg_id))
+            else:
+                logger.warning(
+                    "Received payment.succeeded webhook with non-succeeded status",
+                    extra={
+                        "payment_id": payment.payment_id,
+                        "status": data.object.get("status"),
+                        "paid": data.object.get("paid"),
+                    },
+                )
+                return JSONResponse(status_code=status.HTTP_200_OK, content={"result": "ok"})
+
+            if was_paid:
+                logger.info(
+                    "Duplicate payment webhook ignored",
+                    extra={
+                        "payment_id": payment.payment_id,
+                        "telegram_id": user.tg_id,
+                        "entity": entity,
+                    },
+                )
+                return JSONResponse(status_code=status.HTTP_200_OK, content={"result": "ok"})
 
             await bot.send_message(
                 settings.bot.CHAT_LOG_ID,
@@ -153,7 +174,18 @@ async def yookassa_webhook(
                             "expire_at": new_expired_at.isoformat() if new_expired_at else None,
                         },
                     )
-                await fsm_context.set_data({})
+                try:
+                    await fsm_context.set_data({})
+                except Exception:
+                    logger.warning(
+                        "Failed to reset FSM data after successful payment",
+                        extra={
+                            "telegram_id": user.tg_id,
+                            "payment_id": payment.payment_id,
+                            "entity": entity,
+                        },
+                        exc_info=True,
+                    )
             elif entity == PaidEntity.PICTURES_COUNTER_REFRESH:
                 await reset_user_image_counter(payment.user_tg_id, db_session)
                 await bot.send_photo(
@@ -195,15 +227,15 @@ async def yookassa_webhook(
                     ),
                 )
 
-            logger.info(
-                "Recipe plan purchased",
-                extra={
-                    "username": user.username,
-                    "telegram_id": user.tg_id,
-                    "entity": entity,
-                    "payment_id": payment.payment_id,
-                },
-            )
+                logger.info(
+                    "Recipe plan purchased",
+                    extra={
+                        "username": user.username,
+                        "telegram_id": user.tg_id,
+                        "entity": entity,
+                        "payment_id": payment.payment_id,
+                    },
+                )
         elif data.event == "payment.canceled":
             await bot.send_message(
                 settings.bot.CHAT_LOG_ID,
