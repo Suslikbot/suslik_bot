@@ -78,7 +78,7 @@ async def main():
     dispatcher = Dispatcher(storage=storage, settings=settings, openai_client=openai_client)
     db = get_db(settings)
     db_session_middleware = DBSessionMiddleware(db)
-    dispatcher.update.outer_middleware(UpdatesDumperMiddleware())
+    dispatcher.update.outer_middleware(UpdatesDumperMiddleware(debug_mode=settings.bot.STAGE == Stage.DEV))
     dispatcher.startup.register(on_startup)
     dispatcher.shutdown.register(on_shutdown)
     dispatcher.message.middleware(db_session_middleware)
