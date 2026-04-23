@@ -7,6 +7,11 @@ from dateutil.relativedelta import relativedelta
 from bot.controllers.user import update_user_expiration
 
 
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
 class FakeSession:
     def __init__(self) -> None:
         self.added = []
