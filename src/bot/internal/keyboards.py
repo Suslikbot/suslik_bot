@@ -112,11 +112,11 @@ def refresh_pictures_kb() -> InlineKeyboardMarkup:
 def garden_entry_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(
-        text="💬 Оставьте в режиме диалога",
+        text="💬 /dialog — остаться в диалоге",
         callback_data="postpay:stay_dialog",
     )
     kb.button(
-        text="🏡 Заглянуть в мой сад",
+        text="🏡 /garden — заглянуть в мой сад",
         callback_data="postpay:open_garden",
     )
     kb.adjust(1)

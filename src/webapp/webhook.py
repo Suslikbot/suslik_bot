@@ -151,7 +151,7 @@ async def yookassa_webhook(
                     if entity == PaidEntity.ONE_MONTH_SUBSCRIPTION
                     else payment_text["1 year success"]
                 )
-                text = f"{base_text}\n\n{garden_text['intro']}"
+                text = f"{base_text}\n\n{garden_text['intro']}\n\n{payment_text['post_payment_onboarding']}"
                 dutation = (
                     relativedelta(months=1) if entity == PaidEntity.ONE_MONTH_SUBSCRIPTION else relativedelta(years=1)
                 )
