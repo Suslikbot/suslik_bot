@@ -1,5 +1,5 @@
 from asyncio import sleep
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from html import escape
 from logging import getLogger
 from random import randint
@@ -19,7 +19,7 @@ from bot.controllers.statistics import (
     build_stat_message,
 )
 from bot.controllers.base import imitate_typing
-from bot.controllers.user import ask_next_question, get_user_counter
+from bot.controllers.user import ask_next_question, get_user_counter, has_active_subscription
 from bot.internal.enums import AIState, Form, SupportState
 from bot.internal.keyboards import support_kb, support_request_kb
 from bot.internal.lexicon import replies, support_text, WELCOME_BY_SOURCE
@@ -45,7 +45,7 @@ async def restore_support_context(state: FSMContext, support_context: dict) -> N
         await state.clear()
 
 
-@router.message(Command("start", "support", "share"))
+@router.message(Command("start", "support", "share", "dialog"))
 async def command_handler(
     message: Message,
     command: CommandObject,
@@ -156,6 +156,21 @@ async def command_handler(
                 )
         case "share":
             await message.answer("Выберите, кому хотите подарить подписку", reply_markup=contact_kb)
+        case "dialog":
+            await state.set_state(AIState.IN_AI_DIALOG)
+            has_full_access = user.tg_id in settings.bot.ADMINS or has_active_subscription(user, datetime.now(UTC))
+
+            if has_full_access:
+                await message.answer(
+                    "Режим AI-диалога активирован 💬\n"
+                    "Подписка активна — у вас полный доступ."
+                )
+            else:
+                remaining_actions = max(settings.bot.ACTIONS_THRESHOLD - user.action_count, 0)
+                await message.answer(
+                    "Режим AI-диалога активирован 💬\n"
+                    f"Вы в бесплатном режиме: осталось {remaining_actions} запросов."
+                )
 
 @router.callback_query(F.data == "support:write")
 async def start_support_request(callback: CallbackQuery, state: FSMContext) -> None:
