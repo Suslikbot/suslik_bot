@@ -53,10 +53,8 @@ async def get_user_from_db_by_tg_id(telegram_id: int, db_session: AsyncSession) 
 
 async def update_user_expiration(user: BotUser, duration: relativedelta, db_session: AsyncSession):
     current_time = datetime.now(UTC)
-    if user.expired_at is None or user.expired_at <= current_time:
-        user.expired_at = current_time + duration
-    else:
-        user.expired_at = current_time + duration
+    base_time = user.expired_at if user.expired_at is not None and user.expired_at > current_time else current_time
+    user.expired_at = base_time + duration
     user.is_subscribed = True
     db_session.add(user)
     logger.info(f"Subscription for {user.tg_id} prolonged to {user.expired_at}")
