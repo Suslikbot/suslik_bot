@@ -2,13 +2,11 @@ import logging
 from asyncio import sleep
 from base64 import b64encode
 
-from aiogram.types import Message
 import openai
-from openai import AsyncOpenAI, BadRequestError
-
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from aiogram.types import Message
 from database.models import User
+from openai import AsyncOpenAI, BadRequestError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -80,11 +78,23 @@ class AIClient:
         previous_response_id = self._normalize_previous_response_id(response_id)
         responses_api = self._get_responses_api()
         try:
+            logger.info(
+                "external api request",
+                extra={
+                    "provider": "openai",
+                    "operation": "responses.create",
+                    "has_previous_response_id": bool(previous_response_id),
+                },
+            )
             response = await responses_api.create(
                 model=self.model,
                 input=[{"role": "user", "content": content}],
                 previous_response_id=previous_response_id,
                 **self._build_response_options(),
+            )
+            logger.info(
+                "external api response",
+                extra={"provider": "openai", "operation": "responses.create", "response_id": response.id},
             )
             
         except BadRequestError as e:
@@ -110,7 +120,15 @@ class AIClient:
 
     async def _run_thread_and_get_response(self, response_id: str) -> tuple[str | None, str]:
         responses_api = self._get_responses_api()
+        logger.info(
+            "external api request",
+            extra={"provider": "openai", "operation": "responses.retrieve", "response_id": response_id},
+        )
         response = await responses_api.retrieve(response_id)
+        logger.info(
+            "external api response",
+            extra={"provider": "openai", "operation": "responses.retrieve", "response_id": response.id},
+        )
         text_response = response.output_text
         if text_response:
             logger.debug(f"Response {response_id} returned: {text_response[:100]}...")
@@ -175,11 +193,24 @@ class AIClient:
         use_existing_thread: bool = False,
     ) -> str:
         responses_api = self._get_responses_api()
+        logger.info(
+            "external api request",
+            extra={
+                "provider": "openai",
+                "operation": "responses.create",
+                "apply_context": True,
+                "use_existing_thread": use_existing_thread,
+            },
+        )
         response = await responses_api.create(
             model=self.model,
             input=[{"role": "user", "content": context}],
             previous_response_id=self._normalize_previous_response_id(user.ai_thread) if use_existing_thread else None,
             **self._build_response_options(),
+        )
+        logger.info(
+            "external api response",
+            extra={"provider": "openai", "operation": "responses.create", "response_id": response.id},
         )
         thread_id = response.id
         user.ai_thread = thread_id

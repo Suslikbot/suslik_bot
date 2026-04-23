@@ -1,12 +1,23 @@
+import logging
 from sqlalchemy import Result, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from yookassa import Payment as YookassaPayment
 from yookassa.domain.response import PaymentResponse
 
 from database.models import Payment
-
+logger = logging.getLogger(__name__)
 
 async def get_subscription_payment(amount: int, description: str, user_id: int, entity: str) -> PaymentResponse:
+    logger.info(
+        "external api request",
+        extra={
+            "provider": "yookassa",
+            "operation": "payment.create",
+            "user_id": user_id,
+            "entity": entity,
+            "payment_kind": "subscription",
+        },
+    )
     payment = YookassaPayment.create(
         {
             "amount": {"value": f"{amount}.00", "currency": "RUB"},
@@ -41,6 +52,15 @@ async def get_subscription_payment(amount: int, description: str, user_id: int, 
             "merchant_customer_id": user_id,
         }
     )
+    logger.info(
+        "external api response",
+        extra={
+            "provider": "yookassa",
+            "operation": "payment.create",
+            "payment_id": payment.id,
+            "status": payment.status,
+        },
+    )
     return payment
 
 
@@ -51,6 +71,16 @@ async def create_recurrent_payment(
     entity: str,
     payment_method_id: str,
 ) -> PaymentResponse:
+    logger.info(
+        "external api request",
+        extra={
+            "provider": "yookassa",
+            "operation": "payment.create",
+            "user_id": user_id,
+            "entity": entity,
+            "payment_kind": "recurrent",
+        },
+    )
     payment = YookassaPayment.create(
         {
             "amount": {"value": f"{amount}.00", "currency": "RUB"},
@@ -79,6 +109,15 @@ async def create_recurrent_payment(
             },
             "merchant_customer_id": user_id,
         }
+    )
+    logger.info(
+        "external api response",
+        extra={
+            "provider": "yookassa",
+            "operation": "payment.create",
+            "payment_id": payment.id,
+            "status": payment.status,
+        },
     )
     return payment
 

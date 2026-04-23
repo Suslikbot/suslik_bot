@@ -25,7 +25,7 @@ async def error_handler(error_event: ErrorEvent, bot: aiogram.Bot, settings: Set
         f"<b>Message:</b> {safe_message}\n\n"
         f"<b>Traceback:</b>\n<code>{safe_traceback}</code>"
     )
-    logging.exception("Exception: ", exc_info=exc_info)
+    logging.exception("errors", exc_info=exc_info, extra={"error_type": type(exc_info).__name__})
     try:
         await bot.send_message(settings.bot.ADMINS[0], error_message)
     except Exception as e:

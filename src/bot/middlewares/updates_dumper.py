@@ -18,7 +18,13 @@ class UpdatesDumperMiddleware(BaseMiddleware):
     ) -> Any:
         json_event = event.model_dump_json(exclude_unset=True)
 
-        logger.info(json_event)
+        logger.info(
+            "inbound update",
+            extra={
+                "update_id": event.update_id,
+                "payload": json_event,
+            },
+        )
         res = await handler(event, data)
         if res is UNHANDLED:
             logger.info("UNHANDLED")
