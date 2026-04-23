@@ -175,6 +175,21 @@ def format_next_watering(plant: GardenPlant) -> str:
     return next_at.strftime("%d.%m")
 
 
+async def ensure_garden_access(
+    message: Message,
+    user: User,
+    state: FSMContext | None = None,
+    clear_state_on_denied: bool = False,
+) -> bool:
+    if has_active_subscription(user, datetime.now(UTC)):
+        return True
+
+    await message.answer(garden_text["paywall"], reply_markup=subscription_kb())
+    if clear_state_on_denied and state is not None:
+        await state.clear()
+    return False
+
+
 async def show_garden_list(message: Message, user: User, db_session: AsyncSession) -> None:
     plants = await list_user_plants(user.tg_id, db_session)
     if not plants:
@@ -216,8 +231,7 @@ async def open_garden(
     db_session: AsyncSession,
 ) -> None:
     await callback.answer()
-    if not has_active_subscription(user, datetime.now(UTC)):
-        await callback.message.answer(garden_text["paywall"], reply_markup=subscription_kb())
+    if not await ensure_garden_access(callback.message, user):
         return
     await show_garden_list(callback.message, user, db_session)
 
@@ -227,8 +241,7 @@ async def open_garden_from_dialog_menu(
     user: User,
     db_session: AsyncSession,
 ) -> None:
-    if not has_active_subscription(user, datetime.now(UTC)):
-        await message.answer(garden_text["paywall"], reply_markup=subscription_kb())
+    if not await ensure_garden_access(message, user):
         return
     await show_garden_list(message, user, db_session)
 
@@ -241,8 +254,7 @@ async def add_garden_plant_prompt(
     user: User,
 ) -> None:
     await callback.answer()
-    if not has_active_subscription(user, datetime.now(UTC)):
-        await callback.message.answer(garden_text["paywall"], reply_markup=subscription_kb())
+    if not await ensure_garden_access(callback.message, user):
         return
     await state.set_state(GardenState.WAITING_ADD_PLANT_CHOICE)
     await callback.message.answer(
@@ -257,8 +269,7 @@ async def add_garden_plant_with_photo(
     user: User,
 ) -> None:
     await callback.answer()
-    if not has_active_subscription(user, datetime.now(UTC)):
-        await callback.message.answer(garden_text["paywall"], reply_markup=subscription_kb())
+    if not await ensure_garden_access(callback.message, user):
         return
     await state.update_data(
         garden_photo_file_path=DEFAULT_GARDEN_AVATAR_PATH,
@@ -276,8 +287,7 @@ async def add_garden_plant_without_photo(
     user: User,
 ) -> None:
     await callback.answer()
-    if not has_active_subscription(user, datetime.now(UTC)):
-        await callback.message.answer(garden_text["paywall"], reply_markup=subscription_kb())
+    if not await ensure_garden_access(callback.message, user):
         return
     await state.set_state(GardenState.WAITING_PLANT_NAME)
     await callback.message.answer(garden_text["add_prompt"])
@@ -293,9 +303,7 @@ async def garden_add_photo_received(
     db_session: AsyncSession,
     openai_client: AIClient,
 ) -> None:
-    if not has_active_subscription(user, datetime.now(UTC)):
-        await message.answer(garden_text["paywall"], reply_markup=subscription_kb())
-        await state.clear()
+    if not await ensure_garden_access(message, user, state=state, clear_state_on_denied=True):
         return
 
     photo = message.photo[-1]
@@ -394,9 +402,7 @@ async def add_garden_plant(
     state: FSMContext,
     user: User,
 ) -> None:
-    if not has_active_subscription(user, datetime.now(UTC)):
-        await message.answer(garden_text["paywall"], reply_markup=subscription_kb())
-        await state.clear()
+    if not await ensure_garden_access(message, user, state=state, clear_state_on_denied=True):
         return
     plant_name = (message.text or "").strip()
     if not plant_name:
@@ -469,9 +475,7 @@ async def add_garden_plant_last_watered(
     user: User,
     db_session: AsyncSession,
 ) -> None:
-    if not has_active_subscription(user, datetime.now(UTC)):
-        await message.answer(garden_text["paywall"], reply_markup=subscription_kb())
-        await state.clear()
+    if not await ensure_garden_access(message, user, state=state, clear_state_on_denied=True):
         return
 
     raw_date = (message.text or "").strip()
@@ -603,9 +607,7 @@ async def rename_plant_handler(
     user: User,
     db_session: AsyncSession,
 ) -> None:
-    if not has_active_subscription(user, datetime.now(UTC)):
-        await message.answer(garden_text["paywall"], reply_markup=subscription_kb())
-        await state.clear()
+    if not await ensure_garden_access(message, user, state=state, clear_state_on_denied=True):
         return
     data = await state.get_data()
     plant_id = data.get("rename_plant_id")
