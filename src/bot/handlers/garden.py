@@ -4,6 +4,7 @@ from logging import getLogger
 from pathlib import Path
 from uuid import uuid4
 from aiogram import F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -224,6 +225,17 @@ async def show_plant_detail(message: Message, plant: GardenPlant, db_session: As
     await message.answer("\n".join(lines), reply_markup=garden_plant_kb(plant.id))
 
 
+@router.message(Command("garden"))
+async def open_garden_by_command(
+    message: Message,
+    user: User,
+    db_session: AsyncSession,
+) -> None:
+    if not await ensure_garden_access(message, user):
+        return
+    await show_garden_list(message, user, db_session)
+
+    
 @router.callback_query(GardenCallbackFactory.filter(F.action == GardenAction.OPEN))
 async def open_garden(
     callback: CallbackQuery,
