@@ -63,7 +63,7 @@ class UserCounters(Base):
 class Payment(Base):
     __tablename__ = "payments"
 
-    payment_id: Mapped[str]
+    payment_id: Mapped[str] = mapped_column(unique=True)
     user_tg_id: Mapped[int] = mapped_column(ForeignKey("users.tg_id", ondelete="CASCADE"))
     payment_type: Mapped[PaymentType] = mapped_column(
         default=PaymentType.ONE_TIME, server_default=PaymentType.ONE_TIME
