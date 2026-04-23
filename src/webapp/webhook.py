@@ -1,4 +1,5 @@
 from logging import getLogger
+from uuid import uuid4
 
 from aiogram import Bot
 from aiogram.fsm.context import FSMContext
@@ -27,6 +28,7 @@ from bot.controllers.user import (
 from bot.internal.enums import AIState, PaidEntity
 from bot.internal.keyboards import garden_entry_kb
 from bot.internal.lexicon import garden_text, payment_text
+from bot.log_context import bind_log_context, reset_log_context, set_log_context
 from database.models import Payment, User, OneTimePurchase
 from webapp.deps import get_bot, get_db_session, get_settings
 
@@ -47,6 +49,11 @@ async def yookassa_webhook(
     settings: Settings = Depends(get_settings),
     db_session: AsyncSession = Depends(get_db_session),
 ):
+    request_id = request.headers.get("x-request-id") or request.headers.get("x-correlation-id")
+    token = set_log_context(
+        correlation_id=request_id or f"webhook-{uuid4()}",
+        operation="yookassa_webhook",
+    )
     bot_id = request.app.state.bot_id
     redis_client = Redis(
         host=settings.redis.HOST,
@@ -59,6 +66,11 @@ async def yookassa_webhook(
     storage = RedisStorage(redis_client)
     try:
         payload = await request.json()
+        bind_log_context(
+            correlation_id=payload.get("object", {}).get("id"),
+            operation=f"yookassa:{payload.get('event', 'unknown')}",
+            state=payload.get("object", {}).get("status"),
+        )
         logger.info(
             "YooKassa webhook received",
             extra={
@@ -73,6 +85,7 @@ async def yookassa_webhook(
         payment_type = metadata.get("payment_type")
         payment: Payment = await get_payment_from_db(data.object.get("id"), db_session)
         user: User = await get_user_from_db_by_tg_id(payment.user_tg_id, db_session)
+        bind_log_context(user_id=user.tg_id)
 
         logger.info(
             "Parsed webhook payload",
@@ -278,4 +291,6 @@ async def yookassa_webhook(
         logger.error(f"Payload validation error: {ve}")
     except Exception as e:
         logger.exception(f"Unexpected error in webhook handler: {e}")
+    finally:
+        reset_log_context(token)
     return JSONResponse(status_code=status.HTTP_200_OK, content={"result": "ok"})

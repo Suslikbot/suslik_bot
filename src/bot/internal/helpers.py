@@ -5,6 +5,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from pydantic_settings import SettingsConfigDict
+from bot.log_context import LogContextFilter
 
 
 class CustomFormatter(logging.Formatter):
@@ -19,11 +20,11 @@ class CustomFormatter(logging.Formatter):
 
 
 main_template = {
-    "format": "%(asctime)s | %(message)s",
+    "format": "%(asctime)s | corr=%(correlation_id)s user=%(user_id)s state=%(state)s op=%(operation)s | %(message)s",
     "datefmt": "%d.%m.%Y %H:%M:%S%z",
 }
 error_template = {
-    "format": "%(asctime)s [%(levelname)8s] [%(module)s:%(funcName)s:%(lineno)d] %(message)s",
+    "format": "%(asctime)s [%(levelname)8s] [%(module)s:%(funcName)s:%(lineno)d] corr=%(correlation_id)s user=%(user_id)s state=%(state)s op=%(operation)s | %(message)s",
     "datefmt": "%d.%m.%Y %H:%M:%S%z",
 }
 
@@ -50,18 +51,25 @@ def get_logging_config(app_name: str):
                 "datefmt": error_template["datefmt"],
             },
         },
+        "filters": {
+            "log_context": {
+                "()": LogContextFilter,
+            },
+        },
         "handlers": {
             "stdout": {
                 "class": "logging.StreamHandler",
                 "level": "INFO",
                 "formatter": "main",
                 "stream": sys.stdout,
+                "filters": ["log_context"],
             },
             "stderr": {
                 "class": "logging.StreamHandler",
                 "level": "WARNING",
                 "formatter": "errors",
                 "stream": sys.stderr,
+                "filters": ["log_context"],
             },
             "file": {
                 "()": RotatingFileHandler,
@@ -71,6 +79,7 @@ def get_logging_config(app_name: str):
                 "maxBytes": 50000000,
                 "backupCount": 3,
                 "encoding": "utf-8",
+                "filters": ["log_context"],
             },
         },
         "loggers": {
