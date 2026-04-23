@@ -1,4 +1,5 @@
 import logging.config
+import json
 import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
@@ -6,6 +7,7 @@ from pathlib import Path
 
 from pydantic_settings import SettingsConfigDict
 from bot.log_context import LogContextFilter
+from bot.internal.enums import Stage
 
 
 class CustomFormatter(logging.Formatter):
@@ -18,6 +20,29 @@ class CustomFormatter(logging.Formatter):
             return f"{base_time}.{msecs}{tz}"
         return super().formatTime(record, datefmt)
 
+class JsonFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        ct = datetime.fromtimestamp(record.created).astimezone()
+        return ct.isoformat(timespec="milliseconds")
+
+    def format(self, record):
+        payload = {
+            "timestamp": self.formatTime(record),
+            "level": record.levelname,
+            "logger": record.name,
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno,
+            "correlation_id": getattr(record, "correlation_id", "-"),
+            "user_id": getattr(record, "user_id", "-"),
+            "state": getattr(record, "state", "-"),
+            "operation": getattr(record, "operation", "-"),
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
 
 main_template = {
     "format": "%(asctime)s | corr=%(correlation_id)s user=%(user_id)s state=%(state)s op=%(operation)s | %(message)s",
@@ -29,13 +54,15 @@ error_template = {
 }
 
 
-def setup_logs(app_name: str):
+def setup_logs(app_name: str, stage: Stage):
     Path("logs").mkdir(parents=True, exist_ok=True)
-    logging_config = get_logging_config(app_name)
+    logging_config = get_logging_config(app_name, stage)
     logging.config.dictConfig(logging_config)
 
 
-def get_logging_config(app_name: str):
+def get_logging_config(app_name: str, stage: Stage):
+    formatter = "json" if stage == Stage.PROD else "main"
+    error_formatter = "json" if stage == Stage.PROD else "errors"
     return {
         "version": 1,
         "disable_existing_loggers": False,
@@ -50,6 +77,9 @@ def get_logging_config(app_name: str):
                 "format": error_template["format"],
                 "datefmt": error_template["datefmt"],
             },
+            "json": {
+                "()": JsonFormatter,
+            },
         },
         "filters": {
             "log_context": {
@@ -60,14 +90,14 @@ def get_logging_config(app_name: str):
             "stdout": {
                 "class": "logging.StreamHandler",
                 "level": "INFO",
-                "formatter": "main",
+                "formatter": formatter,
                 "stream": sys.stdout,
                 "filters": ["log_context"],
             },
             "stderr": {
                 "class": "logging.StreamHandler",
                 "level": "WARNING",
-                "formatter": "errors",
+                "formatter": error_formatter,
                 "stream": sys.stderr,
                 "filters": ["log_context"],
             },

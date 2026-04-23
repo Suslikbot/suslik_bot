@@ -30,8 +30,8 @@ from database.database_connector import get_db
 
 
 async def main():
-    setup_logs("suslik_robot")
     settings = get_settings()
+    setup_logs("suslik_robot", settings.bot.STAGE)
     if settings.bot.SENTRY_DSN and settings.bot.STAGE == Stage.PROD:
         sentry_sdk.init(
             dsn=settings.bot.SENTRY_DSN.get_secret_value(),

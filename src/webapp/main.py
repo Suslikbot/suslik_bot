@@ -39,7 +39,7 @@ app = FastAPI(lifespan=lifespan)
 app.state: State  # type: ignore
 
 
-setup_logs("yookassa_webhook")
+setup_logs("yookassa_webhook", get_settings().bot.STAGE)
 
 app.include_router(router, prefix="/webhook")
 

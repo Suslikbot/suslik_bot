@@ -24,8 +24,8 @@ DEFAULT_TEST_REPEAT_MINUTES = 0
 
 
 async def main() -> None:
-    setup_logs("watering_worker")
     settings = get_settings()
+    setup_logs("watering_worker", settings.bot.STAGE)
 
     if settings.bot.SENTRY_DSN and settings.bot.STAGE == Stage.PROD:
         sentry_init(
