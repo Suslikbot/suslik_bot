@@ -344,6 +344,9 @@ async def onb_demo(callback: CallbackQuery, state: FSMContext, user: User, setti
         "Тогда мы сможем повторить это упражнение уже на твоих растениях 🌿"
     )
     await callback.message.answer(home_time_prompt, reply_markup=home_time_kb)
+    # Demo-ветка (FSM):
+    # WAITING_HOME_TIME -> (home_time:0) -> WAITING_PLANT_PHOTO
+    # WAITING_HOME_TIME -> (home_time:2/4) -> WAITING_CONFIRM_HOME -> (home:yes) -> WAITING_PLANT_PHOTO
     await state.set_state(AIState.WAITING_HOME_TIME)
     await log_onboarding_step(
         message=callback.message,

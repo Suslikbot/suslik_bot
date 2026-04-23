@@ -93,7 +93,14 @@ async def command_handler(
                 )
                 return
 
-            variant = "onboarding_3"  # Change onboarding
+            variant = cfg.get("onboarding", "onboarding_3")
+            if variant not in ONBOARDING_VARIANTS:
+                logger.warning(
+                    "Unknown onboarding variant '%s' for source '%s'; fallback to onboarding_3",
+                    variant,
+                    source,
+                )
+                variant = "onboarding_3"
             await ONBOARDING_VARIANTS[variant](
                 message=message,
                 state=state,
