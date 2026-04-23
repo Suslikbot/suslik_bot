@@ -13,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from bot.ai_client import AIClient
 from bot.config import Settings
-from bot.internal.enums import AIState, Form
+from bot.internal.enums import AIState
 from bot.handlers.ai import ai_assistant_photo_handler
 from logging import getLogger
 
@@ -134,6 +134,22 @@ async def waiting_plant_photo_text(message: Message):
         "Можешь просто отправить снимок при дневном свете 🌿"
     )
 
+
+@router.message(AIState.WAITING_HOME_TIME, F.text)
+async def waiting_home_time_text(message: Message):
+    await message.answer("нажми кнопку выбора времени")
+
+
+@router.message(AIState.WAITING_HOME_TIME, F.voice)
+async def waiting_home_time_voice(message: Message):
+    await message.answer("нажми кнопку выбора времени")
+
+
+@router.message(AIState.WAITING_HOME_TIME, F.photo)
+async def waiting_home_time_photo(message: Message):
+    await message.answer("нажми кнопку выбора времени")
+
+
 FLAG_RE = re.compile(r"^\s*(PLANT|QUALITY)\s*:\s*(YES|NO|GOOD|BAD)\s*$", re.IGNORECASE | re.MULTILINE)
 
 def extract_flags(text: str) -> tuple[str | None, str | None]:
@@ -161,6 +177,31 @@ def extract_flag(text: str, flag: str) -> str | None:
     """
     match = re.search(rf"{flag}:\s*(YES|NO|GOOD|BAD)", text)
     return match.group(1) if match else None
+
+
+def normalize_city_input(raw_text: str) -> str | None:
+    city = re.sub(r"\s+", " ", raw_text.strip())
+    if len(city) < 2:
+        return None
+
+    lower_city = city.lower()
+    if re.search(r"https?://|www\.|t\.me/|telegram\.me/|\.com\b|\.ru\b|@", lower_city):
+        return None
+
+    allowed_chars_pattern = r"^[A-Za-zА-Яа-яЁё\s\-'.]+$"
+    if not re.match(allowed_chars_pattern, city):
+        return None
+
+    letters_count = len(re.findall(r"[A-Za-zА-Яа-яЁё]", city))
+    if letters_count < 2:
+        return None
+
+    if letters_count / max(len(city), 1) < 0.6:
+        return None
+
+    return city
+
+
 async def register_invalid_onboarding_photo(
     message: Message,
     state: FSMContext,
@@ -642,44 +683,6 @@ async def handle_plant_photo(
         forced_user_text=PHOTO_ANALYSIS_USER_TEXT,
     )'''
 
-@router.message(
-    Form.geography,
-    F.text,
-)
-async def handle_geography(
-    message: Message,
-    state: FSMContext,
-    user: User,
-    db_session: AsyncSession,
-    settings: Settings,
-):
-    city = message.text.strip()
-    user.geography = city
-    await db_session.commit()
-    data = await state.get_data()
-    scenario = data.get("onboarding_scenario")
-
-    # DEBUG на время
-    await message.answer(f"(debug) scenario={scenario}")
-   # await state.set_state(AIState.IN_AI_DIALOG)
-
-    if scenario == "rescue":
-        response_text = await show_rescue_screen(message, city)
-    elif scenario == "growth":
-        response_text = await show_growth_screen(message, city)
-    else:
-        response_text = await show_rescue_screen(message, city)
-    await log_onboarding_step(
-        message=message,
-        state=state,
-        user=user,
-        settings=settings,
-        step="city_received_form_geography",
-        extra=f"city={city} scenario={scenario}",
-        user_message=message.text,
-        bot_response=response_text,
-    )
-    await state.set_state(AIState.IN_AI_DIALOG)
 
 @router.message(AIState.WAITING_CITY, F.text)
 async def handle_city(
@@ -689,7 +692,13 @@ async def handle_city(
     db_session: AsyncSession,
     settings: Settings,
 ):
-    city = message.text.strip()
+    city = normalize_city_input(message.text)
+    if not city:
+        await message.answer(
+            "Пожалуйста, пришли город текстом.\n"
+            "Например: Москва, Казань или Saint Petersburg."
+        )
+        return
     user.geography = city
     await db_session.commit()
     data = await state.get_data()
@@ -710,6 +719,22 @@ async def handle_city(
         bot_response=response_text,
     )
     await state.set_state(AIState.IN_AI_DIALOG)
+
+
+@router.message(AIState.WAITING_CITY, F.photo)
+async def handle_city_photo_fallback(message: Message):
+    await message.answer("пришли город текстом")
+
+
+@router.message(AIState.WAITING_CITY, F.voice)
+async def handle_city_voice_fallback(message: Message):
+    await message.answer("пришли город текстом")
+
+
+@router.message(AIState.WAITING_CITY, F.sticker)
+async def handle_city_sticker_fallback(message: Message):
+    await message.answer("пришли город текстом")
+
 
 @router.callback_query(F.data == "skip")
 async def handle_skip_onboarding(
