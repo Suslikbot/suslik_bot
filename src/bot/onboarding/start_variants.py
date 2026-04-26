@@ -108,8 +108,6 @@ async def onboarding_3( # noqa: PLR0913
         settings=settings,
         step="start_screen_shown",
     )
-    await imitate_typing()
-
     # await state.set_state(AIState.IN_AI_DIALOG)
 
 

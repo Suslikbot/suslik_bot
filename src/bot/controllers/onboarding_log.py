@@ -1,8 +1,12 @@
+import logging
+
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from bot.config import Settings
 from database.models import User
+
+logger = logging.getLogger(__name__)
 
 
 async def log_onboarding_step( # noqa: PLR0913
@@ -28,4 +32,7 @@ async def log_onboarding_step( # noqa: PLR0913
         lines.append(f"user_message: {user_message}")
     if bot_response:
         lines.append(f"bot_response: {bot_response}")
-    await message.bot.send_message(settings.bot.CHAT_LOG_ID, "\n".join(lines))
+    try:
+        await message.bot.send_message(settings.bot.CHAT_LOG_ID, "\n".join(lines))
+    except Exception:
+        logger.warning("Failed to send onboarding log step", exc_info=True)

@@ -46,12 +46,13 @@ async def command_handler( # noqa: PLR0913 C901 PLR0912
     user: User,
     settings: Settings,
     state: FSMContext,
+    raw_state: str | None,
     db_session: AsyncSession,
 ) -> None:
     match command.command:
         case "start":
             logger.info(build_stat_message("Start_bot", user.tg_id))
-            current_state = await state.get_state()
+            current_state = raw_state
 
             if current_state in {
                 AIState.WAITING_PLANT_PHOTO,
@@ -73,12 +74,6 @@ async def command_handler( # noqa: PLR0913 C901 PLR0912
             source = user.source or "default"
             cfg = WELCOME_BY_SOURCE.get(source, WELCOME_BY_SOURCE["default"])
 
-            if cfg.get("photo"):
-                await message.answer_photo(FSInputFile(cfg["photo"]))
-
-            if cfg.get("text"):
-                await message.answer(cfg["text"].format(fullname=user.fullname))
-
             if user.is_context_added:
                 await state.set_state(AIState.IN_AI_DIALOG)
                 await message.answer(
@@ -95,6 +90,11 @@ async def command_handler( # noqa: PLR0913 C901 PLR0912
                     source,
                 )
                 variant = "onboarding_3"
+            if cfg.get("photo") and variant != "onboarding_3":
+                await message.answer_photo(FSInputFile(cfg["photo"]))
+
+            if cfg.get("text"):
+                await message.answer(cfg["text"].format(fullname=user.fullname))
             await ONBOARDING_VARIANTS[variant](
                 message=message,
                 state=state,
