@@ -447,7 +447,7 @@ async def confirm_home(callback: CallbackQuery, state: FSMContext, user: User, s
 def extract_health_score(text: str) -> int | None:
     match = re.search(r"(\d{1,2})/10", text)
     return int(match.group(1)) if match else None
-async def show_rescue_screen(message: Message):
+async def show_rescue_screen(message: Message, city: str | None = None):
     response_text = (
         "⚠️ Ситуация серьёзная, но растение можно спасти.\n\n"
         "Я подготовил для тебя экстренный 'Протокол Реанимации на 14 дней':\n"
