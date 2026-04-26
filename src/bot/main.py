@@ -1,6 +1,7 @@
 import logging
 from asyncio import run
 from pathlib import Path
+
 import sentry_sdk
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -8,7 +9,6 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from redis.asyncio import Redis
 from yookassa import Configuration
-from bot.handlers.onboarding_callbacks import router as onboarding_callbacks_router
 
 from bot.ai_client import AIClient
 from bot.config import get_settings
@@ -17,6 +17,7 @@ from bot.handlers.base import router as base_router
 from bot.handlers.command import router as commands_router
 from bot.handlers.errors import router as error_router
 from bot.handlers.garden import router as garden_router
+from bot.handlers.onboarding_callbacks import router as onboarding_callbacks_router
 from bot.handlers.payment import router as payment_router
 from bot.internal.enums import Stage
 from bot.internal.helpers import setup_logs

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class UpdatesDumperMiddleware(BaseMiddleware):
-    def __init__(self, debug_mode: bool = False) -> None:
+    def __init__(self, *,  debug_mode: bool = False) -> None:
         self.debug_mode = debug_mode
 
     @staticmethod

@@ -1,11 +1,12 @@
-from collections.abc import Awaitable, Callable
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware
 from aiogram.types import Message
 
 from database.database_connector import DatabaseConnector
+
 logger = logging.getLogger(__name__)
 
 class DBSessionMiddleware(BaseMiddleware):
@@ -25,11 +26,12 @@ class DBSessionMiddleware(BaseMiddleware):
                 res = await handler(event, data)
                 logger.info("db commit")
                 await db_session.commit()
-                return res
             except Exception:
                 logger.info("db rollback")
                 await db_session.rollback()
                 raise
+            else:
+                return res
             finally:
                 logger.info("middleware end", extra={"middleware": "DBSessionMiddleware"})
 

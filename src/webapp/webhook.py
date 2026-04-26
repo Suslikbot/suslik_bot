@@ -5,7 +5,7 @@ from aiogram import Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.redis import RedisStorage
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ValidationError
@@ -14,22 +14,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from bot.controllers.statistics import build_stat_message
-
 
 from bot.config import Settings
 from bot.controllers.payments import get_payment_from_db
+from bot.controllers.statistics import build_stat_message
 from bot.controllers.user import (
     get_user_from_db_by_tg_id,
     reset_user_image_counter,
     update_user_expiration,
 )
-from bot.internal.enums import AIState, PaidEntity
+from bot.internal.enums import PaidEntity
 from bot.internal.keyboards import garden_entry_kb
 from bot.internal.lexicon import garden_text, payment_text
 from bot.log_context import bind_log_context, reset_log_context, set_log_context
-from database.models import Payment, User, OneTimePurchase
+from database.models import OneTimePurchase, Payment, User
 from webapp.deps import get_bot, get_db_session, get_settings
 
 router = APIRouter()
@@ -43,11 +41,11 @@ class YooKassaEvent(BaseModel):
 
 @router.post("")
 @router.post("/")
-async def yookassa_webhook(
+async def yookassa_webhook( # noqa: C901 PLR0915 PLR0912
     request: Request,
-    bot: Bot = Depends(get_bot),
-    settings: Settings = Depends(get_settings),
-    db_session: AsyncSession = Depends(get_db_session),
+    bot: Bot = Depends(get_bot), # noqa: B008FAST002
+    settings: Settings = Depends(get_settings), # noqa: B008FAST002
+    db_session: AsyncSession = Depends(get_db_session), # noqa: B008 FAST002
 ):
     request_id = request.headers.get("x-request-id") or request.headers.get("x-correlation-id")
     token = set_log_context(
@@ -189,7 +187,7 @@ async def yookassa_webhook(
                     )
                 try:
                     await fsm_context.set_data({})
-                except Exception:
+                except Exception: # noqa: BLE001
                     logger.warning(
                         "Failed to reset FSM data after successful payment",
                         extra={
@@ -215,7 +213,7 @@ async def yookassa_webhook(
                     },
                 )
             #await fsm_context.set_state(AIState.IN_AI_DIALOG)
-            elif entity == 'RECIPE_PLAN':
+            elif entity == "RECIPE_PLAN":
                 purchase = OneTimePurchase(
                     user_id=payment.user_tg_id,
                     product_code="RECIPE_PLAN",
@@ -287,10 +285,10 @@ async def yookassa_webhook(
                 "telegram_id": user.tg_id,
             },
         )
-    except ValidationError as ve:
-        logger.error(f"Payload validation error: {ve}")
-    except Exception as e:
-        logger.exception(f"Unexpected error in webhook handler: {e}")
+    except ValidationError:
+        logger.exception("Payload validation error")
+    except Exception:
+        logger.exception("Unexpected error in webhook handler")
     finally:
         reset_log_context(token)
     return JSONResponse(status_code=status.HTTP_200_OK, content={"result": "ok"})

@@ -12,11 +12,11 @@ class LogContext:
     operation: str | None = None
 
 
-_log_context: ContextVar[LogContext] = ContextVar("log_context", default=LogContext())
+_log_context: ContextVar[LogContext | None] = ContextVar("log_context", default=None)
 
 
 def get_log_context() -> LogContext:
-    return _log_context.get()
+    return _log_context.get() or LogContext()
 
 
 def bind_log_context(

@@ -1,15 +1,17 @@
 import functools
 import logging
-from time import perf_counter
-from uuid import uuid4
 from collections.abc import Awaitable, Callable
-from typing import Any
+from time import perf_counter
+from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from aiogram import BaseMiddleware
-from aiogram.fsm.context import FSMContext
 from aiogram.types import TelegramObject
 
 from bot.log_context import reset_log_context, set_log_context
+
+if TYPE_CHECKING:
+    from aiogram.fsm.context import FSMContext
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +37,7 @@ class LoggingMiddleware(BaseMiddleware):
         started_at = perf_counter()
         try:
             logger.info("handler start", extra={"handler": name})
-            result = await handler(event, data)
-            return result
+            return await handler(event, data)
         except Exception:
             logger.exception(
                 "handler error",
@@ -60,8 +61,7 @@ class LoggingMiddleware(BaseMiddleware):
         while isinstance(handler, functools.partial):
             handler = handler.args[0]
 
-        name = handler.__wrapped__.__self__.callback.__name__
-        return name
+        return handler.__wrapped__.__self__.callback.__name__
 
     def _get_correlation_id(self, event: TelegramObject) -> str:
         update_id = getattr(event, "update_id", None)

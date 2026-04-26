@@ -14,7 +14,7 @@ from bot.internal.callbacks import (
 from bot.internal.enums import GardenAction, PaidEntity, SubscriptionAction
 
 
-def subscription_kb(prolong: bool = False) -> InlineKeyboardMarkup:
+def subscription_kb(*, prolong: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     month_text = "Продлить на месяц" if prolong else "Месяц"
     year_text = "Продлить на год" if prolong else "Годовая подписка"
@@ -231,8 +231,26 @@ def garden_plant_kb(plant_id: int) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def garden_photo_kb(plant_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text="📸 Обновить фото",
+        callback_data=GardenCallbackFactory(action=GardenAction.UPDATE_PHOTO, plant_id=plant_id).pack(),
+    )
+    kb.button(
+        text="⬅️ Назад в настройки",
+        callback_data=GardenCallbackFactory(action=GardenAction.SETTINGS, plant_id=plant_id).pack(),
+    )
+    kb.adjust(1)
+    return kb.as_markup()
+
+
 def garden_settings_kb(plant_id: int, notifications_enabled: bool) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    kb.button(
+        text="🖼 Посмотреть фото",
+        callback_data=GardenCallbackFactory(action=GardenAction.VIEW_PHOTO, plant_id=plant_id).pack(),
+    )
     kb.button(
         text="✏️ Дать имя",
         callback_data=GardenCallbackFactory(action=GardenAction.RENAME, plant_id=plant_id).pack(),

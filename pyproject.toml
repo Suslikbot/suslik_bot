@@ -57,6 +57,11 @@ ignore = [
   "RUF001",
   "ERA001",
 ]
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["S101"]
+"src/bot/internal/lexicon.py" = ["RUF003"]
+"src/bot/controllers/statistics.py" = ["A005"]
+"src/bot/middlewares/logging.py" = ["A005"]
 
 [tool.ruff.format]
 docstring-code-format = true

@@ -40,7 +40,7 @@ async def payment_handler(
             description = "Сброс лимита картинок."
             amount = 150
         case _:
-            assert False, "Unexpected paid entity"
+            raise ValueError(f"Unexpected paid entity: {callback_data.entity!r}")
     payment = await get_subscription_payment(amount, description, callback.from_user.id, callback_data.entity)
     confirmation_url = payment.confirmation.confirmation_url
     await add_payment_to_db(payment.id, amount, description, callback.from_user.id, db_session)

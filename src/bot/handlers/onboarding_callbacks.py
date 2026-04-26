@@ -1,59 +1,51 @@
-from asyncio import sleep
+import asyncio
 import re
-from bot.controllers.statistics import build_stat_message
-from aiogram.utils.chat_action import ChatActionSender
-
-from bot.controllers import user
-from bot.controllers.base import refactor_string
-from bot.controllers.base import imitate_typing
-from aiogram.types import CallbackQuery, FSInputFile
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.fsm.context import FSMContext
-from aiogram.exceptions import TelegramBadRequest
-from bot.ai_client import AIClient
-from bot.config import Settings
-from bot.internal.enums import AIState
-from bot.handlers.ai import ai_assistant_photo_handler
+import tempfile
+from asyncio import sleep
+from datetime import UTC, datetime, timedelta
 from logging import getLogger
+from pathlib import Path
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import StateFilter
-from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
-from aiogram.types import FSInputFile, Message
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 from aiogram.utils.chat_action import ChatActionSender
-from openai import BadRequestError
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.ai_client import AIClient
 from bot.config import Settings
 from bot.controllers.base import (
-    refactor_string,
     validate_image_limit,
-    validate_message_length,
 )
 from bot.controllers.gpt import get_or_create_ai_thread
-from bot.controllers.user import check_action_limit, get_user_counter
-from bot.controllers.voice import process_voice
-from bot.internal.enums import AIState
-from bot.internal.keyboards import refresh_pictures_kb, subscription_kb
-from bot.internal.lexicon import replies
-from bot.middlewares.user_limit import settings
-from database.models import User
-from database.models import PlantAnalysis, OneTimePurchase
-from sqlalchemy import select, desc
-from pathlib import Path
-from aiogram.types import FSInputFile
-from bot.handlers.pdf_generator import generate_plan_pdf
-import tempfile
-from bot.controllers.payments import add_payment_to_db, get_subscription_payment
-from bot.internal.keyboards import payment_link_kb
-from bot.internal.lexicon import payment_text
 from bot.controllers.onboarding_log import log_onboarding_step
+from bot.controllers.payments import add_payment_to_db, get_subscription_payment
+from bot.controllers.statistics import build_stat_message
+from bot.controllers.user import check_action_limit
+from bot.handlers.pdf_generator import generate_plan_pdf
+from bot.internal.enums import AIState
+from bot.internal.keyboards import payment_link_kb, refresh_pictures_kb, subscription_kb
+from bot.internal.lexicon import payment_text, replies
+from bot.middlewares.user_limit import settings
+from database.models import OneTimePurchase, PlantAnalysis, User
 
 router = Router()
 logger = getLogger(__name__)
+
+ONBOARDING_LOW_SCORE_THRESHOLD = 5
+ONBOARDING_RESCUE_SCORE_THRESHOLD = 5
+CITY_LETTERS_RATIO_THRESHOLD = 0.6
+MIN_CITY_LETTERS = 2
+BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 
 async def safe_callback_answer(callback: CallbackQuery) -> None:
     try:
@@ -95,28 +87,28 @@ PLAN_99_TEXT = ( """
 
 Структура ответа строго фиксирована:
 
-1. ЗАГОЛОВОК  
-Эмодзи (🚑 для больных / 🚀 для здоровых) +  
+1. ЗАГОЛОВОК
+Эмодзи (🚑 для больных / 🚀 для здоровых) +
 Название: "Протокол Реанимации №{ID}" или "Карта Роста №{ID}"
 
-2. ПАСПОРТ ПАЦИЕНТА  
-– Название растения  
-– Оценка здоровья (Score)  
+2. ПАСПОРТ ПАЦИЕНТА
+– Название растения
+– Оценка здоровья (Score)
 – Основная проблема (1 строка)
 
-3. ЭТАП 1: СРОЧНЫЕ МЕРЫ (Сделать сегодня)  
-– Механическое действие  
+3. ЭТАП 1: СРОЧНЫЕ МЕРЫ (Сделать сегодня)
+– Механическое действие
 – Точные измеримые инструкции
 
-4. ЭТАП 2: АПТЕЧКА (Дешево и безопасно)  
-– Только 1–2 доступных средства  
+4. ЭТАП 2: АПТЕЧКА (Дешево и безопасно)
+– Только 1–2 доступных средства
 – Обязательно указать дозировку
 
-5. ЭТАП 3: ГРАФИК НА 14 ДНЕЙ  
-– Обязательно описать каждый день с 1 по 14  
+5. ЭТАП 3: ГРАФИК НА 14 ДНЕЙ
+– Обязательно описать каждый день с 1 по 14
 – Формат строго: "День X: ..."
 
-6. СЕКРЕТ СУСЛИКА  
+6. СЕКРЕТ СУСЛИКА
 – Один неочевидный лайфхак именно для этого растения
 
 Ограничения:
@@ -166,8 +158,7 @@ def extract_flags(text: str) -> tuple[str | None, str | None]:
 
 def strip_flags(text: str) -> str:
     cleaned = FLAG_RE.sub("", text)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-    return cleaned
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 
 def extract_flag(text: str, flag: str) -> str | None:
     """
@@ -181,7 +172,7 @@ def extract_flag(text: str, flag: str) -> str | None:
 
 def normalize_city_input(raw_text: str) -> str | None:
     city = re.sub(r"\s+", " ", raw_text.strip())
-    if len(city) < 2:
+    if len(city) < MIN_CITY_LETTERS:
         return None
 
     lower_city = city.lower()
@@ -193,10 +184,10 @@ def normalize_city_input(raw_text: str) -> str | None:
         return None
 
     letters_count = len(re.findall(r"[A-Za-zА-Яа-яЁё]", city))
-    if letters_count < 2:
+    if letters_count < MIN_CITY_LETTERS:
         return None
 
-    if letters_count / max(len(city), 1) < 0.6:
+    if letters_count / max(len(city), 1) < CITY_LETTERS_RATIO_THRESHOLD:
         return None
 
     return city
@@ -225,15 +216,14 @@ async def register_invalid_onboarding_photo(
 
     return False
 
-from pathlib import Path
 
 
 def response_to_blocks(text: str) -> list[str]:
     blocks = []
     current = []
 
-    for line in text.splitlines():
-        line = line.strip()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
         if not line:
             continue
 
@@ -305,14 +295,14 @@ async def onb_demo(callback: CallbackQuery, state: FSMContext, user: User, setti
     )
     await sleep(2)
     text = """👀 Смотри, какой тяжелый случай мне прислала Аня вчера.
-    
+
     📸 Анализ завершен.
     🌿 Пациент: Zamioculcas zamiifolia (Замиокулькас)
     📊 Health Score: 😕 6/10 (Статус: Среднее)
-    
+
     Диагноз Суслика:
     Вижу пожелтение и потерю яркости верхних листьев, часть выглядит пересушенной, отдельные пятна и светлые участки—признак избыточного полива или нехватки света. Возможны первые симптомы корневой гнили.
-    
+
     ⚠️ Прогноз:
     Продолжение полива без просушки приведёт к массовому сбросу листьев, растение рискует погибнуть за 1–2 месяца.
     """
@@ -358,10 +348,6 @@ async def onb_demo(callback: CallbackQuery, state: FSMContext, user: User, setti
         bot_response=home_time_prompt
     )
 
-from datetime import datetime, timedelta
-import asyncio
-from aiogram.types import Message
-
 
 @router.callback_query(
     AIState.WAITING_HOME_TIME,
@@ -378,7 +364,7 @@ async def handle_home_time(callback: CallbackQuery, state: FSMContext, user: Use
     else:
         hours = 4
 
-    remind_at = datetime.utcnow() + timedelta(hours=hours)
+    remind_at = datetime.now(UTC) + timedelta(hours=hours)
 
     response_text = (
         "Отлично! Тогда начинаем прямо сейчас 😊" if hours == 0 else f"Отлично! Напомню через {hours} часа 😊")
@@ -401,18 +387,16 @@ async def handle_home_time(callback: CallbackQuery, state: FSMContext, user: Use
         await state.set_state(AIState.WAITING_PLANT_PHOTO)
     else:
         await state.set_state(AIState.WAITING_CONFIRM_HOME)
-        asyncio.create_task(
-            schedule_reminder(
-                callback.message.bot,
-                callback.message.chat.id,
-                remind_at
-            )
+        task = asyncio.create_task(
+            schedule_reminder(callback.message.bot, callback.message.chat.id, remind_at)
         )
+        BACKGROUND_TASKS.add(task)
+        task.add_done_callback(BACKGROUND_TASKS.discard)
 
 
 
 async def schedule_reminder(bot, chat_id: int, remind_at: datetime):
-    delay = (remind_at - datetime.utcnow()).total_seconds()
+    delay = (remind_at - datetime.now(UTC)).total_seconds()
 
     if delay > 0:
         await asyncio.sleep(delay)
@@ -428,7 +412,6 @@ async def schedule_reminder(bot, chat_id: int, remind_at: datetime):
         reply_markup=confirm_home_kb
     )
 
-from aiogram.types import CallbackQuery
 
 @router.callback_query(StateFilter(AIState.WAITING_HOME_TIME, AIState.WAITING_CONFIRM_HOME), F.data == "home:yes")
 async def confirm_home(callback: CallbackQuery, state: FSMContext, user: User, settings: Settings):
@@ -459,12 +442,12 @@ async def confirm_home(callback: CallbackQuery, state: FSMContext, user: User, s
 
 #    await safe_callback_answer(callback)
 
-from aiogram.types import Message
+
 
 def extract_health_score(text: str) -> int | None:
-    match = re.search(r'(\d{1,2})/10', text)
+    match = re.search(r"(\d{1,2})/10", text)
     return int(match.group(1)) if match else None
-async def show_rescue_screen(message: Message, city: str):
+async def show_rescue_screen(message: Message):
     response_text = (
         "⚠️ Ситуация серьёзная, но растение можно спасти.\n\n"
         "Я подготовил для тебя экстренный 'Протокол Реанимации на 14 дней':\n"
@@ -512,7 +495,7 @@ async def waiting_plant_photo_voice(message: Message):
     )
 
 @router.message(AIState.WAITING_PLANT_PHOTO, F.photo)
-async def handle_plant_photo(
+async def handle_plant_photo(  # noqa: PLR0911, PLR0913, PLR0915
     message: Message,
     state: FSMContext,
     openai_client: AIClient,
@@ -528,19 +511,18 @@ async def handle_plant_photo(
         )
         return
 
-    if user.tg_id not in settings.bot.ADMINS:
-        if not await validate_image_limit(user.tg_id, settings, db_session):
-            await message.answer_photo(
-                photo=FSInputFile(path="src/bot/data/not_happy.png"),
-                caption=replies["photo_limit_exceeded"],
-                reply_markup=refresh_pictures_kb(),
-            )
-            await message.forward(settings.bot.CHAT_LOG_ID)
-            await message.bot.send_message(
-                settings.bot.CHAT_LOG_ID,
-                replies["pictures_limit_exceeded_log"].format(username=user.username),
-            )
-            return
+    if user.tg_id not in settings.bot.ADMINS and not await validate_image_limit(user.tg_id, settings, db_session):
+        await message.answer_photo(
+            photo=FSInputFile(path="src/bot/data/not_happy.png"),
+            caption=replies["photo_limit_exceeded"],
+            reply_markup=refresh_pictures_kb(),
+        )
+        await message.forward(settings.bot.CHAT_LOG_ID)
+        await message.bot.send_message(
+            settings.bot.CHAT_LOG_ID,
+            replies["pictures_limit_exceeded_log"].format(username=user.username),
+        )
+        return
     await message.forward(settings.bot.CHAT_LOG_ID)
     state_data = await state.get_data()
     if not state_data.get("onboarding_first_photo_counted"):
@@ -574,11 +556,7 @@ async def handle_plant_photo(
         db_session.add(user)
 
     # 4️⃣ Если AI вернул ошибку или пустой ответ — остаёмся в WAITING_PLANT_PHOTO
-    if (
-        not response
-        or response.startswith("Превышены лимиты")
-        or response.startswith("Ошибка при обработке изображения")
-    ):
+    if not response or response.startswith(("Превышены лимиты", "Ошибка при обработке изображения")):
         await message.answer(
             "Не получилось проанализировать фото 😔\n"
             "Попробуй сфотографировать растение ещё раз при хорошем дневном свете 📸"
@@ -592,7 +570,7 @@ async def handle_plant_photo(
 
     cleaned_for_user = strip_flags(cleaned)
     # 7️⃣ Если Health Score нет — считаем фото невалидным
-    # 🚫 На фото не растение
+    # The uploaded image is not a plant.
     if plant_flag != "YES":
         await message.answer(replies["onboarding_invalid_photo"])
         should_stop = await register_invalid_onboarding_photo(
@@ -622,7 +600,7 @@ async def handle_plant_photo(
             return
         return
     analysis = PlantAnalysis(
-        user_tg_id=user.tg_id,  # или user.id — как у тебя принято
+        user_tg_id=user.tg_id,
         thread_id=thread_id,
         tg_file_id=photo.file_id,
         tg_file_unique_id=photo.file_unique_id,
@@ -633,13 +611,13 @@ async def handle_plant_photo(
     await db_session.commit()
     logger.info(build_stat_message("Diagnosis_result", user.tg_id))
 
-    scenario = "rescue" if score <= 5 else "growth"
+    scenario = "rescue" if score <= ONBOARDING_RESCUE_SCORE_THRESHOLD else "growth"
     await state.update_data(onboarding_scenario=scenario, health_score=score)
     await message.answer(cleaned_for_user)
     await sleep(1)
     await state.set_state(AIState.WAITING_CITY)
 
-    if score <= 5:
+    if score <= ONBOARDING_LOW_SCORE_THRESHOLD:
         follow_up_text = (
             "⚠️ Похоже, растению нужна помощь.\n"
             "Чтобы я рассчитал уход под твой климат, напиши свой город 🌍"
@@ -662,7 +640,7 @@ async def handle_plant_photo(
     )
 
 
-'''@router.message(AIState.WAITING_PLANT_PHOTO, F.photo)
+"""@router.message(AIState.WAITING_PLANT_PHOTO, F.photo)
 async def handle_plant_photo(
     message: Message,
     state: FSMContext,
@@ -684,7 +662,7 @@ async def handle_plant_photo(
         settings=settings,
         db_session=db_session,
         forced_user_text=PHOTO_ANALYSIS_USER_TEXT,
-    )'''
+    )"""
 
 
 @router.message(AIState.WAITING_CITY, F.text)
@@ -740,7 +718,7 @@ async def handle_city_sticker_fallback(message: Message):
 
 
 @router.callback_query(F.data == "skip")
-async def handle_skip_onboarding(
+async def handle_skip_onboarding( # noqa: PLR0913
     callback: CallbackQuery,
     state: FSMContext,
     user: User,
@@ -774,11 +752,9 @@ async def handle_skip_onboarding(
         user_message=f"callback:{callback.data}",
         bot_response=skip_text,
     )
-    # Убираем «часики» у кнопки
+    # Clear the button loading state.
     await safe_callback_answer(callback)
 
-from aiogram.types import Message
-from aiogram.types import FSInputFile
 
 async def show_subscription_paywall(
     message: Message,
@@ -928,7 +904,7 @@ async def recipe_analysis(
         select(OneTimePurchase).where(
             OneTimePurchase.user_id == user.tg_id,
             OneTimePurchase.product_code == "RECIPE_PLAN",
-            OneTimePurchase.is_consumed == False,
+            ~OneTimePurchase.is_consumed,
         )
     )
 
@@ -961,7 +937,6 @@ async def recipe_analysis(
         extra={"user": user.tg_id}
     )
     # --- считаем остатки ---
-    user_counter = await get_user_counter(user.tg_id, db_session)
 
     remaining_text = settings.bot.ACTIONS_THRESHOLD - user.action_count
 

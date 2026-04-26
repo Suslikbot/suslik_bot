@@ -1,47 +1,55 @@
-from datetime import UTC, datetime, timedelta
 import re
+from datetime import UTC, datetime, timedelta
 from logging import getLogger
 from pathlib import Path
 from uuid import uuid4
+
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from bot.ai_client import AIClient
-from bot.controllers.gpt import get_or_create_ai_thread
+from bot.config import Settings
 from bot.controllers.garden import (
-    add_plant,
-    delete_plant,
+    GARDEN_STATUS_CRITICAL,
+    GARDEN_STATUS_HEALTHY,
+    GARDEN_STATUS_NEEDS_HELP,
     add_history_entry,
+    add_plant,
     add_plant_photo,
+    delete_plant,
     get_plant,
+    get_primary_plant_photo,
     get_recent_history,
     list_user_plants,
     mark_plant_watered,
     rename_plant,
+    resolve_next_watering_at,
     toggle_plant_notifications,
-    GARDEN_STATUS_CRITICAL,
-    GARDEN_STATUS_NEEDS_HELP,
-    GARDEN_STATUS_HEALTHY,
+    was_watered_today,
 )
+from bot.controllers.garden_log import log_garden_action
+from bot.controllers.gpt import get_or_create_ai_thread
+from bot.controllers.statistics import build_stat_message
 from bot.controllers.user import has_active_subscription
 from bot.internal.callbacks import GardenCallbackFactory
 from bot.internal.enums import AIState, GardenAction, GardenState
 from bot.internal.keyboards import (
     dialog_menu_kb,
-    garden_delete_confirm_kb,
     garden_add_choice_kb,
-    garden_species_confirm_kb,
-    garden_watering_confirm_kb,
+    garden_delete_confirm_kb,
     garden_list_kb,
-    garden_welcome_kb,
+    garden_photo_kb,
     garden_plant_kb,
     garden_settings_kb,
+    garden_species_confirm_kb,
+    garden_watering_confirm_kb,
+    garden_welcome_kb,
     subscription_kb,
 )
-from bot.controllers.statistics import build_stat_message
-from bot.config import Settings
 from bot.internal.lexicon import garden_text
 from database.models import GardenPlant, User
 
@@ -49,6 +57,16 @@ router = Router()
 logger = getLogger(__name__)
 DEFAULT_GARDEN_AVATAR_PATH = "src/bot/data/pitomnik.png"
 GARDEN_PHOTO_STORAGE_DIR = Path("storage/garden_photos")
+MIN_WATERING_DAYS = 1
+MAX_WATERING_DAYS = 60
+MAX_LAST_WATERED_AGE_DAYS = 40
+
+
+async def clear_callback_markup(callback: CallbackQuery) -> None:
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        return
 
 
 def normalize_garden_health_status(raw_status: str | None) -> str:
@@ -83,6 +101,43 @@ def parse_plant_snapshot(snapshot_text: str) -> dict[str, str | int | None]:
     }
 
 
+def parse_garden_ai_result(raw_text: str | None) -> dict[str, str | int | None]:
+    if not raw_text:
+        return {
+            "name": None,
+            "health_status": GARDEN_STATUS_HEALTHY,
+            "watering_days": 7,
+        }
+
+    name_match = re.search(r"NAME:\s*(.+)", raw_text)
+    health_match = re.search(r"HEALTH:\s*(.+)", raw_text)
+    water_match = re.search(r"WATER_DAYS:\s*(\d+)", raw_text)
+
+    name = name_match.group(1).strip() if name_match else None
+    if name:
+        name = name.strip(" .,!?:;\"'")
+    health_status = normalize_garden_health_status(health_match.group(1).strip() if health_match else None)
+    watering_days = parse_watering_days(water_match.group(1) if water_match else None) or 7
+
+    return {
+        "name": name,
+        "health_status": health_status,
+        "watering_days": watering_days,
+    }
+
+
+def parse_watering_days(raw_text: str | None) -> int | None:
+    if not raw_text:
+        return None
+    match = re.search(r"(\d{1,2})", raw_text)
+    if not match:
+        return None
+    days = int(match.group(1))
+    if days < MIN_WATERING_DAYS or days > MAX_WATERING_DAYS:
+        return None
+    return days
+
+
 def build_snapshot_history_text(snapshot: dict[str, str | int | None], next_water_at: datetime) -> str:
     return (
         "Сводка по фото:\n"
@@ -104,7 +159,7 @@ async def post_payment_stay_dialog(
     user.action_count += 1
     await db_session.flush()
     decision_text = "Остаться в IN_AI_DIALOG"
-    logger.info(build_stat_message("Postpay_choice", user.tg_id) + f" | decision={decision_text}")
+    logger.info("%s | decision=%s", build_stat_message("Postpay_choice", user.tg_id), decision_text)
     await callback.message.bot.send_message(
         settings.bot.CHAT_LOG_ID,
         f"[postpay_choice] user={user.tg_id} @{user.username} decision={decision_text} action_count={user.action_count}",
@@ -128,7 +183,7 @@ async def post_payment_open_garden_stub(
     user.action_count += 1
     await db_session.flush()
     decision_text = "Перейти в сад"
-    logger.info(build_stat_message("Postpay_choice", user.tg_id) + f" | decision={decision_text}")
+    logger.info("%s | decision=%s", build_stat_message("Postpay_choice", user.tg_id), decision_text)
     await callback.message.bot.send_message(
         settings.bot.CHAT_LOG_ID,
         f"[postpay_choice] user={user.tg_id} @{user.username} decision={decision_text} action_count={user.action_count}",
@@ -157,9 +212,10 @@ def status_emoji(status: str) -> str:
 
 
 def format_watering_recommendation_days(days: int) -> str:
-    if days % 10 == 1 and days % 100 != 11:
+    # Русские формы: 1 день, 2-4 дня, 5-20 дней и дальше по тому же правилу.
+    if days % 10 == 1 and days % 100 != 11:  # noqa: PLR2004
         return f"{days} день"
-    if days % 10 in {2, 3, 4} and not 12 <= days % 100 <= 14:
+    if days % 10 in {2, 3, 4} and not 12 <= days % 100 <= 14:  # noqa: PLR2004
         return f"{days} дня"
     return f"{days} дней"
 
@@ -180,6 +236,7 @@ async def ensure_garden_access(
     message: Message,
     user: User,
     state: FSMContext | None = None,
+    *,
     clear_state_on_denied: bool = False,
 ) -> bool:
     if has_active_subscription(user, datetime.now(UTC)):
@@ -230,21 +287,42 @@ async def open_garden_by_command(
     message: Message,
     user: User,
     db_session: AsyncSession,
+    settings: Settings,
 ) -> None:
     if not await ensure_garden_access(message, user):
         return
+    await log_garden_action(
+        message=message,
+        state=None,
+        user=user,
+        settings=settings,
+        action="open_garden",
+        user_message="/garden",
+        bot_response="Показан список растений",
+    )
     await show_garden_list(message, user, db_session)
 
-    
+
 @router.callback_query(GardenCallbackFactory.filter(F.action == GardenAction.OPEN))
 async def open_garden(
     callback: CallbackQuery,
     user: User,
     db_session: AsyncSession,
+    settings: Settings,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     if not await ensure_garden_access(callback.message, user):
         return
+    await log_garden_action(
+        message=callback.message,
+        state=None,
+        user=user,
+        settings=settings,
+        action="open_garden",
+        user_message="callback:garden_open",
+        bot_response="Показан список растений",
+    )
     await show_garden_list(callback.message, user, db_session)
 
 @router.message(AIState.IN_AI_DIALOG, F.text == "🏡 Мой сад")
@@ -252,9 +330,19 @@ async def open_garden_from_dialog_menu(
     message: Message,
     user: User,
     db_session: AsyncSession,
+    settings: Settings,
 ) -> None:
     if not await ensure_garden_access(message, user):
         return
+    await log_garden_action(
+        message=message,
+        state=None,
+        user=user,
+        settings=settings,
+        action="open_garden",
+        user_message="🏡 Мой сад",
+        bot_response="Показан список растений",
+    )
     await show_garden_list(message, user, db_session)
 
 
@@ -264,11 +352,22 @@ async def add_garden_plant_prompt(
     callback: CallbackQuery,
     state: FSMContext,
     user: User,
+    settings: Settings,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     if not await ensure_garden_access(callback.message, user):
         return
     await state.set_state(GardenState.WAITING_ADD_PLANT_CHOICE)
+    await log_garden_action(
+        message=callback.message,
+        state=state,
+        user=user,
+        settings=settings,
+        action="start_add_plant",
+        user_message="callback:add_plant",
+        bot_response="Показан выбор сценария добавления",
+    )
     await callback.message.answer(
         "Хочешь добавить растение с фото?",
         reply_markup=garden_add_choice_kb(),
@@ -279,8 +378,10 @@ async def add_garden_plant_with_photo(
     callback: CallbackQuery,
     state: FSMContext,
     user: User,
+    settings: Settings,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     if not await ensure_garden_access(callback.message, user):
         return
     await state.update_data(
@@ -289,6 +390,15 @@ async def add_garden_plant_with_photo(
         garden_health_status=GARDEN_STATUS_HEALTHY,
     )
     await state.set_state(GardenState.WAITING_NEW_PLANT_PHOTO)
+    await log_garden_action(
+        message=callback.message,
+        state=state,
+        user=user,
+        settings=settings,
+        action="choose_add_with_photo",
+        user_message="callback:add_with_photo",
+        bot_response="Запрошено фото растения",
+    )
     await callback.message.answer("Отлично! Пришли фото растения 📸")
 
 
@@ -297,11 +407,22 @@ async def add_garden_plant_without_photo(
     callback: CallbackQuery,
     state: FSMContext,
     user: User,
+    settings: Settings,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     if not await ensure_garden_access(callback.message, user):
         return
     await state.set_state(GardenState.WAITING_PLANT_NAME)
+    await log_garden_action(
+        message=callback.message,
+        state=state,
+        user=user,
+        settings=settings,
+        action="choose_add_without_photo",
+        user_message="callback:add_without_photo",
+        bot_response=garden_text["add_prompt"],
+    )
     await callback.message.answer(garden_text["add_prompt"])
 
 
@@ -311,9 +432,9 @@ async def garden_add_photo_received(
     message: Message,
     state: FSMContext,
     user: User,
-    settings: Settings,
     db_session: AsyncSession,
     openai_client: AIClient,
+    settings: Settings,
 ) -> None:
     if not await ensure_garden_access(message, user, state=state, clear_state_on_denied=True):
         return
@@ -328,45 +449,81 @@ async def garden_add_photo_received(
     photo_path.write_bytes(image_bytes)
     thread_id = await get_or_create_ai_thread(user, openai_client, db_session)
     prompt = (
-        "Определи вид растения по фото. Ответь ТОЛЬКО коротким названием растения на русском, "
-        "без пояснений, без пунктуации и без дополнительных слов."
+        "Проанализируй растение на фото и ответь СТРОГО в таком формате без пояснений:\n"
+        "NAME: <короткое название растения на русском>\n"
+        "HEALTH: <КРИТИЧЕСКОЕ или ПОМОЩЬ или ЗДОРОВ>\n"
+        "WATER_DAYS: <целое число дней полива>\n"
+        "Никакого дополнительного текста."
     )
-    guess, thread_id = await openai_client.get_response_with_image(
+    await log_garden_action(
+        message=message,
+        state=state,
+        user=user,
+        settings=settings,
+        action="garden_ai_request",
+        user_message="[photo]",
+        bot_response="Фото отправлено в AI на анализ вида, состояния и частоты полива",
+    )
+    ai_result_raw, thread_id = await openai_client.get_response_with_image(
         thread_id=thread_id,
         text=prompt,
         image_bytes=image_bytes,
         message=message,
         fullname=user.fullname,
     )
-    health_prompt = (
-        "Оцени здоровье растения на фото. "
-        "Ответь ТОЛЬКО одним словом: КРИТИЧЕСКОЕ или ПОМОЩЬ или ЗДОРОВ."
-    )
-    health_raw, thread_id = await openai_client.get_response_with_image(
-        thread_id=thread_id,
-        text=health_prompt,
-        image_bytes=image_bytes,
+    ai_result = parse_garden_ai_result(ai_result_raw)
+    guessed_plant = ai_result["name"]
+    health_status = str(ai_result["health_status"])
+    watering_days = int(ai_result["watering_days"])
+    await log_garden_action(
         message=message,
-        fullname=user.fullname,
+        state=state,
+        user=user,
+        settings=settings,
+        action="garden_ai_response",
+        plant_name=str(guessed_plant) if guessed_plant else None,
+        details=f"health={health_status}; watering_days={watering_days}",
+        bot_response=ai_result_raw or "empty_response",
     )
-    health_status = normalize_garden_health_status(health_raw)
     user.ai_thread = thread_id
     db_session.add(user)
     await state.update_data(
         garden_photo_file_path=str(photo_path),
         garden_photo_analysis=(
-            f"AI-определение по фото: {guess.strip() if guess else 'не получено'}\n"
-            f"AI-оценка здоровья: {health_status}"
+            f"AI-определение по фото: {guessed_plant or 'не получено'}\n"
+            f"AI-оценка здоровья: {health_status}\n"
+            f"AI-рекомендация по поливу: каждые {watering_days} дн."
         ),
         garden_health_status=health_status,
+        garden_watering_interval_days=watering_days,
     )
-    if not guess or guess.startswith("Превышены лимиты") or guess.startswith("Ошибка при обработке изображения"):
+    if not guessed_plant:
+        await log_garden_action(
+            message=message,
+            state=state,
+            user=user,
+            settings=settings,
+            action="photo_processed_fallback_to_manual_name",
+            details=f"health={health_status}; watering_days={watering_days}",
+            user_message="[photo]",
+            bot_response="Не удалось распознать растение по фото, запрошено ручное название",
+        )
         await message.answer("Не удалось распознать растение по фото 😔\nНапиши название растения вручную.")
         await state.set_state(GardenState.WAITING_PLANT_NAME)
         return
 
-    guessed_plant = guess.strip().splitlines()[0].strip(" .,!?:;\"'")
     await state.update_data(garden_guessed_plant=guessed_plant)
+    await log_garden_action(
+        message=message,
+        state=state,
+        user=user,
+        settings=settings,
+        action="photo_processed_guess_ready",
+        plant_name=guessed_plant,
+        details=f"health={health_status}; watering_days={watering_days}",
+        user_message="[photo]",
+        bot_response=f"Предложено подтверждение вида: {guessed_plant}",
+    )
     await message.answer(
         f"Похоже, это: {guessed_plant}. Так ли это?",
         reply_markup=garden_species_confirm_kb(),
@@ -376,11 +533,23 @@ async def garden_add_photo_received(
 async def garden_confirm_guess_yes(
     callback: CallbackQuery,
     state: FSMContext,
+    user: User,
+    settings: Settings,
 ) -> None:
     await callback.answer()
     data = await state.get_data()
     guessed = data.get("garden_guessed_plant", "растение")
     await state.set_state(GardenState.WAITING_PLANT_NAME)
+    await log_garden_action(
+        message=callback.message,
+        state=state,
+        user=user,
+        settings=settings,
+        action="confirm_species_yes",
+        plant_name=str(guessed),
+        user_message="callback:confirm_guess_yes",
+        bot_response=f"Запрошена кличка для «{guessed}»",
+    )
     await callback.message.answer(f"Отлично! Тогда напиши кличку для «{guessed}».")
 
 
@@ -388,18 +557,40 @@ async def garden_confirm_guess_yes(
 async def garden_confirm_guess_no(
     callback: CallbackQuery,
     state: FSMContext,
+    user: User,
+    settings: Settings,
 ) -> None:
     await callback.answer()
     await state.set_state(GardenState.WAITING_PLANT_NAME)
+    await log_garden_action(
+        message=callback.message,
+        state=state,
+        user=user,
+        settings=settings,
+        action="confirm_species_no",
+        user_message="callback:confirm_guess_no",
+        bot_response="Запрошено ручное название растения",
+    )
     await callback.message.answer("Хорошо, тогда напиши название растения вручную.")
 
 @router.callback_query(GardenCallbackFactory.filter(F.action == GardenAction.CONFIRM_GUESS_RETAKE))
 async def garden_confirm_guess_retake(
     callback: CallbackQuery,
     state: FSMContext,
+    user: User,
+    settings: Settings,
 ) -> None:
     await callback.answer()
     await state.set_state(GardenState.WAITING_NEW_PLANT_PHOTO)
+    await log_garden_action(
+        message=callback.message,
+        state=state,
+        user=user,
+        settings=settings,
+        action="retake_photo",
+        user_message="callback:confirm_guess_retake",
+        bot_response="Запрошено новое фото растения",
+    )
     await callback.message.answer("Окей, сделай новое фото растения 📸")
 
 @router.message(GardenState.WAITING_NEW_PLANT_PHOTO)
@@ -413,6 +604,7 @@ async def add_garden_plant(
     message: Message,
     state: FSMContext,
     user: User,
+    settings: Settings,
 ) -> None:
     if not await ensure_garden_access(message, user, state=state, clear_state_on_denied=True):
         return
@@ -429,6 +621,17 @@ async def add_garden_plant(
     )
     recommendation = format_watering_recommendation_days(max(1, water_days))
     await state.set_state(GardenState.WAITING_WATERING_INTERVAL_CONFIRM)
+    await log_garden_action(
+        message=message,
+        state=state,
+        user=user,
+        settings=settings,
+        action="set_plant_name",
+        plant_name=plant_name,
+        details=f"recommended_watering_days={max(1, water_days)}",
+        user_message=plant_name,
+        bot_response=f"Предложен полив каждые {recommendation}",
+    )
     await message.answer(
         f"Рекомендую поливать это растение каждые {recommendation}. Подходит такая частота?",
         reply_markup=garden_watering_confirm_kb(),
@@ -438,9 +641,25 @@ async def add_garden_plant(
     async def garden_confirm_watering_yes(
             callback: CallbackQuery,
             state: FSMContext,
+            user: User,
+            settings: Settings,
     ) -> None:
         await callback.answer()
+        await clear_callback_markup(callback)
         await state.set_state(GardenState.WAITING_LAST_WATERED_DATE)
+        data = await state.get_data()
+        plant_name = data.get("garden_pending_plant_name")
+        await log_garden_action(
+            message=callback.message,
+            state=state,
+            user=user,
+            settings=settings,
+            action="confirm_watering_interval_yes",
+            plant_name=str(plant_name) if plant_name else None,
+            details=f"watering_days={data.get('garden_watering_interval_days', 7)}",
+            user_message="callback:confirm_watering_yes",
+            bot_response="Запрошена дата последнего полива",
+        )
         await callback.message.answer(
             "Когда вы поливали растение в последний раз?\nВведите дату в формате ДД.ММ.ГГГГ (например: 09.02.2026)."
         )
@@ -449,9 +668,24 @@ async def add_garden_plant(
     async def garden_confirm_watering_change(
             callback: CallbackQuery,
             state: FSMContext,
+            user: User,
+            settings: Settings,
     ) -> None:
         await callback.answer()
+        await clear_callback_markup(callback)
         await state.set_state(GardenState.WAITING_WATERING_INTERVAL_DAYS)
+        data = await state.get_data()
+        plant_name = data.get("garden_pending_plant_name")
+        await log_garden_action(
+            message=callback.message,
+            state=state,
+            user=user,
+            settings=settings,
+            action="choose_change_watering_interval",
+            plant_name=str(plant_name) if plant_name else None,
+            user_message="callback:confirm_watering_change",
+            bot_response="Запрошена новая частота полива",
+        )
         await callback.message.answer("Окей, укажи частоту полива в днях (например: 5).")
 
 
@@ -460,6 +694,8 @@ async def add_garden_plant(
 async def garden_set_watering_interval_days(
     message: Message,
     state: FSMContext,
+    user: User,
+    settings: Settings,
 ) -> None:
     raw_value = (message.text or "").strip()
     if not raw_value.isdigit():
@@ -467,12 +703,25 @@ async def garden_set_watering_interval_days(
         return
 
     days = int(raw_value)
-    if days < 1 or days > 60:
+    if days < MIN_WATERING_DAYS or days > MAX_WATERING_DAYS:
         await message.answer("Выберите значение от 1 до 60 дней.")
         return
 
     await state.update_data(garden_watering_interval_days=days)
     await state.set_state(GardenState.WAITING_LAST_WATERED_DATE)
+    data = await state.get_data()
+    plant_name = data.get("garden_pending_plant_name")
+    await log_garden_action(
+        message=message,
+        state=state,
+        user=user,
+        settings=settings,
+        action="set_watering_interval_days",
+        plant_name=str(plant_name) if plant_name else None,
+        details=f"watering_days={days}",
+        user_message=raw_value,
+        bot_response="Запрошена дата последнего полива",
+    )
     await message.answer(
         f"Отлично, зафиксировал: каждые {format_watering_recommendation_days(days)}.\n"
         "Когда вы поливали растение в последний раз?\n"
@@ -486,6 +735,7 @@ async def add_garden_plant_last_watered(
     state: FSMContext,
     user: User,
     db_session: AsyncSession,
+    settings: Settings,
 ) -> None:
     if not await ensure_garden_access(message, user, state=state, clear_state_on_denied=True):
         return
@@ -495,6 +745,16 @@ async def add_garden_plant_last_watered(
         parsed_date = datetime.strptime(raw_date, "%d.%m.%Y").replace(tzinfo=UTC)
     except ValueError:
         await message.answer("Не понял дату 🙏 Используйте формат ДД.ММ.ГГГГ, например 09.02.2026.")
+        return
+
+    today = datetime.now(UTC).date()
+    parsed_day = parsed_date.date()
+    oldest_allowed_day = today - timedelta(days=MAX_LAST_WATERED_AGE_DAYS)
+    if parsed_day > today or parsed_day < oldest_allowed_day:
+        await message.answer(
+            "Дата последнего полива должна быть не позже сегодня и не старше 40 дней. "
+            "Введите дату в формате ДД.ММ.ГГГГ."
+        )
         return
 
     data = await state.get_data()
@@ -528,7 +788,10 @@ async def add_garden_plant_last_watered(
         plant.status = normalize_garden_health_status(str(snapshot["status"]))
 
     plant.last_watered_at = parsed_date
-    plant.next_watering_at = parsed_date + timedelta(days=plant.watering_interval_days)
+    plant.next_watering_at = resolve_next_watering_at(
+        parsed_date,
+        plant.watering_interval_days,
+    )
 
     if isinstance(snapshot, dict) and snapshot:
         history_text = build_snapshot_history_text(snapshot, plant.next_watering_at)
@@ -537,10 +800,26 @@ async def add_garden_plant_last_watered(
     await db_session.flush()
 
     await state.clear()
+    await log_garden_action(
+        message=message,
+        state=None,
+        user=user,
+        settings=settings,
+        action="plant_added",
+        plant_name=plant_name,
+        details=(
+            f"watering_days={plant.watering_interval_days}; "
+            f"last_watered_at={parsed_date.strftime('%d.%m.%Y')}; "
+            f"next_watering={format_next_watering(plant)}; "
+            f"status={plant.status}"
+        ),
+        user_message=raw_date,
+        bot_response="Растение добавлено в сад",
+    )
     await message.answer(garden_text["add_success"].format(name=plant_name))
     await message.answer(
         f"Записал последний полив: {parsed_date.strftime('%d.%m.%Y')}.\n"
-        f"Следующий полив: {plant.next_watering_at.strftime('%d.%m.%Y')}."
+        f"Следующий полив: {format_next_watering(plant)}."
     )
     await show_garden_list(message, user, db_session)
 
@@ -552,11 +831,135 @@ async def view_garden_plant(
     db_session: AsyncSession,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     plant = await get_plant(callback_data.plant_id, user.tg_id, db_session)
     if not plant:
         await callback.message.answer(garden_text["not_found"])
         return
     await show_plant_detail(callback.message, plant, db_session)
+
+
+@router.callback_query(GardenCallbackFactory.filter(F.action == GardenAction.VIEW_PHOTO))
+async def view_plant_photo(
+    callback: CallbackQuery,
+    callback_data: GardenCallbackFactory,
+    user: User,
+    db_session: AsyncSession,
+    settings: Settings,
+) -> None:
+    await callback.answer()
+    await clear_callback_markup(callback)
+    plant = await get_plant(callback_data.plant_id, user.tg_id, db_session)
+    if not plant:
+        await callback.message.answer(garden_text["not_found"])
+        return
+    photo = await get_primary_plant_photo(plant.id, db_session)
+    await log_garden_action(
+        message=callback.message,
+        state=None,
+        user=user,
+        settings=settings,
+        action="view_plant_photo",
+        plant_name=plant.name,
+        user_message=f"callback:view_photo:{plant.id}",
+        bot_response="Показано фото растения",
+    )
+    if not photo or not Path(photo.file_path).exists():
+        await callback.message.answer(
+            f"У «{plant.name}» пока нет сохранённого фото.\nМожешь добавить новое прямо сейчас.",
+            reply_markup=garden_photo_kb(plant.id),
+        )
+        return
+    await callback.message.answer_photo(
+        FSInputFile(path=photo.file_path),
+        caption=f"Фото растения «{plant.name}»",
+        reply_markup=garden_photo_kb(plant.id),
+    )
+
+
+@router.callback_query(GardenCallbackFactory.filter(F.action == GardenAction.UPDATE_PHOTO))
+async def request_plant_photo_update(
+    callback: CallbackQuery,
+    callback_data: GardenCallbackFactory,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    settings: Settings,
+) -> None:
+    await callback.answer()
+    await clear_callback_markup(callback)
+    plant = await get_plant(callback_data.plant_id, user.tg_id, db_session)
+    if not plant:
+        await callback.message.answer(garden_text["not_found"])
+        return
+    await state.update_data(garden_update_photo_plant_id=plant.id)
+    await state.set_state(GardenState.WAITING_PLANT_PHOTO_UPDATE)
+    await log_garden_action(
+        message=callback.message,
+        state=state,
+        user=user,
+        settings=settings,
+        action="request_photo_update",
+        plant_name=plant.name,
+        user_message=f"callback:update_photo:{plant.id}",
+        bot_response="Запрошено новое фото растения",
+    )
+    await callback.message.answer(
+        f"Пришли новое фото для «{plant.name}» 📸\nЯ обновлю карточку растения."
+    )
+
+
+@router.message(GardenState.WAITING_PLANT_PHOTO_UPDATE, F.photo)
+async def update_plant_photo(
+    message: Message,
+    state: FSMContext,
+    user: User,
+    db_session: AsyncSession,
+    settings: Settings,
+) -> None:
+    if not await ensure_garden_access(message, user, state=state, clear_state_on_denied=True):
+        return
+    data = await state.get_data()
+    plant_id = data.get("garden_update_photo_plant_id")
+    plant = await get_plant(plant_id, user.tg_id, db_session)
+    if not plant:
+        await state.clear()
+        await message.answer(garden_text["not_found"])
+        return
+    photo = message.photo[-1]
+    file_info = await message.bot.get_file(photo.file_id)
+    file_bytes = await message.bot.download_file(file_info.file_path)
+    image_bytes = file_bytes.read()
+    extension = Path(file_info.file_path or "").suffix or ".jpg"
+    GARDEN_PHOTO_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    photo_path = GARDEN_PHOTO_STORAGE_DIR / f"{user.tg_id}_{uuid4().hex}{extension}"
+    photo_path.write_bytes(image_bytes)
+    await add_plant_photo(
+        plant_id=plant.id,
+        file_path=str(photo_path),
+        db_session=db_session,
+        analysis="Фото обновлено пользователем.",
+        is_primary=True,
+    )
+    await add_history_entry(plant.id, f"Фото обновлено ({datetime.now(UTC):%d.%m})", db_session)
+    await state.clear()
+    await log_garden_action(
+        message=message,
+        state=None,
+        user=user,
+        settings=settings,
+        action="update_plant_photo",
+        plant_name=plant.name,
+        user_message="[photo]",
+        bot_response="Фото растения обновлено",
+    )
+    await message.answer(f"Обновил фото для «{plant.name}» 📸")
+    await show_plant_detail(message, plant, db_session)
+
+
+@router.message(GardenState.WAITING_PLANT_PHOTO_UPDATE)
+async def update_plant_photo_retry(message: Message) -> None:
+    await message.answer("Нужна именно новая фотография растения 📸")
 
 
 @router.callback_query(GardenCallbackFactory.filter(F.action == GardenAction.WATERED))
@@ -565,13 +968,43 @@ async def mark_watered(
     callback_data: GardenCallbackFactory,
     user: User,
     db_session: AsyncSession,
+    settings: Settings,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     plant = await get_plant(callback_data.plant_id, user.tg_id, db_session)
     if not plant:
         await callback.message.answer(garden_text["not_found"])
         return
+    if was_watered_today(plant):
+        warning_text = (
+            f"Сегодня «{plant.name}» уже был полит(а) 💧\n"
+            "Дважды за день поливать нельзя — это плохо для растения."
+        )
+        await log_garden_action(
+            message=callback.message,
+            state=None,
+            user=user,
+            settings=settings,
+            action="mark_watered_blocked_same_day",
+            plant_name=plant.name,
+            user_message=f"callback:watered:{callback_data.plant_id}",
+            bot_response=warning_text,
+        )
+        await callback.message.answer(warning_text)
+        return
     await mark_plant_watered(plant, db_session)
+    await log_garden_action(
+        message=callback.message,
+        state=None,
+        user=user,
+        settings=settings,
+        action="mark_watered",
+        plant_name=plant.name,
+        details=f"next_watering={format_next_watering(plant)}",
+        user_message=f"callback:watered:{callback_data.plant_id}",
+        bot_response="Полив отмечен",
+    )
     await callback.message.answer(garden_text["watered_success"].format(name=plant.name))
     await show_plant_detail(callback.message, plant, db_session)
 
@@ -582,12 +1015,24 @@ async def plant_settings(
     callback_data: GardenCallbackFactory,
     user: User,
     db_session: AsyncSession,
+    settings: Settings,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     plant = await get_plant(callback_data.plant_id, user.tg_id, db_session)
     if not plant:
         await callback.message.answer(garden_text["not_found"])
         return
+    await log_garden_action(
+        message=callback.message,
+        state=None,
+        user=user,
+        settings=settings,
+        action="open_plant_settings",
+        plant_name=plant.name,
+        user_message=f"callback:settings:{plant.id}",
+        bot_response="Открыты настройки растения",
+    )
     await callback.message.answer(
         garden_text["settings"].format(name=plant.name),
         reply_markup=garden_settings_kb(plant.id, plant.notifications_enabled),
@@ -603,6 +1048,7 @@ async def rename_prompt(
     db_session: AsyncSession,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     plant = await get_plant(callback_data.plant_id, user.tg_id, db_session)
     if not plant:
         await callback.message.answer(garden_text["not_found"])
@@ -618,6 +1064,7 @@ async def rename_plant_handler(
     state: FSMContext,
     user: User,
     db_session: AsyncSession,
+    settings: Settings,
 ) -> None:
     if not await ensure_garden_access(message, user, state=state, clear_state_on_denied=True):
         return
@@ -632,8 +1079,20 @@ async def rename_plant_handler(
     if not new_name:
         await message.answer(garden_text["rename_retry"])
         return
+    old_name = plant.name
     await rename_plant(plant, new_name, db_session)
     await state.clear()
+    await log_garden_action(
+        message=message,
+        state=None,
+        user=user,
+        settings=settings,
+        action="rename_plant",
+        plant_name=new_name,
+        details=f"old_name={old_name}",
+        user_message=new_name,
+        bot_response="Растение переименовано",
+    )
     await message.answer(garden_text["rename_success"].format(name=new_name))
     await show_plant_detail(message, plant, db_session)
 
@@ -644,14 +1103,27 @@ async def toggle_notifications(
     callback_data: GardenCallbackFactory,
     user: User,
     db_session: AsyncSession,
+    settings: Settings,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     plant = await get_plant(callback_data.plant_id, user.tg_id, db_session)
     if not plant:
         await callback.message.answer(garden_text["not_found"])
         return
     await toggle_plant_notifications(plant, db_session)
     status_text = garden_text["notifications_on"] if plant.notifications_enabled else garden_text["notifications_off"]
+    await log_garden_action(
+        message=callback.message,
+        state=None,
+        user=user,
+        settings=settings,
+        action="toggle_notifications",
+        plant_name=plant.name,
+        details=f"notifications_enabled={plant.notifications_enabled}",
+        user_message=f"callback:toggle_notifications:{callback_data.plant_id}",
+        bot_response=status_text.format(name=plant.name),
+    )
     await callback.message.answer(status_text.format(name=plant.name))
     await callback.message.answer(
         garden_text["settings"].format(name=plant.name),
@@ -665,12 +1137,24 @@ async def delete_confirm(
     callback_data: GardenCallbackFactory,
     user: User,
     db_session: AsyncSession,
+    settings: Settings,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     plant = await get_plant(callback_data.plant_id, user.tg_id, db_session)
     if not plant:
         await callback.message.answer(garden_text["not_found"])
         return
+    await log_garden_action(
+        message=callback.message,
+        state=None,
+        user=user,
+        settings=settings,
+        action="delete_confirm",
+        plant_name=plant.name,
+        user_message=f"callback:delete_confirm:{callback_data.plant_id}",
+        bot_response="Показано подтверждение удаления",
+    )
     await callback.message.answer(
         garden_text["delete_confirm"].format(name=plant.name),
         reply_markup=garden_delete_confirm_kb(plant.id),
@@ -683,14 +1167,27 @@ async def delete_plant_handler(
     callback_data: GardenCallbackFactory,
     user: User,
     db_session: AsyncSession,
+    settings: Settings,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     plant = await get_plant(callback_data.plant_id, user.tg_id, db_session)
     if not plant:
         await callback.message.answer(garden_text["not_found"])
         return
+    plant_name = plant.name
     await delete_plant(plant, db_session)
-    await callback.message.answer(garden_text["delete_success"].format(name=plant.name))
+    await log_garden_action(
+        message=callback.message,
+        state=None,
+        user=user,
+        settings=settings,
+        action="delete_plant",
+        plant_name=plant_name,
+        user_message=f"callback:delete:{callback_data.plant_id}",
+        bot_response="Растение удалено из сада",
+    )
+    await callback.message.answer(garden_text["delete_success"].format(name=plant_name))
     await show_garden_list(callback.message, user, db_session)
 
 
@@ -701,6 +1198,7 @@ async def back_to_list(
     db_session: AsyncSession,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     await show_garden_list(callback.message, user, db_session)
 
 
@@ -708,13 +1206,29 @@ async def back_to_list(
 async def back_handler(
     callback: CallbackQuery,
     callback_data: GardenCallbackFactory,
+    state: FSMContext,
     user: User,
     db_session: AsyncSession,
+    settings: Settings,
 ) -> None:
     await callback.answer()
+    await clear_callback_markup(callback)
     if callback_data.plant_id:
         plant = await get_plant(callback_data.plant_id, user.tg_id, db_session)
         if plant:
             await show_plant_detail(callback.message, plant, db_session)
             return
-    await show_garden_list(callback.message, user, db_session)
+    await state.set_state(AIState.IN_AI_DIALOG)
+    await log_garden_action(
+        message=callback.message,
+        state=state,
+        user=user,
+        settings=settings,
+        action="back_to_dialog",
+        user_message="callback:back",
+        bot_response="Возврат в режим диалога",
+    )
+    await callback.message.answer(
+        "Возвращаю в режим диалога 💬",
+        reply_markup=dialog_menu_kb(),
+    )

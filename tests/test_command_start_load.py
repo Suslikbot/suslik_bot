@@ -7,15 +7,20 @@ from bot.handlers import command as command_module
 from bot.internal.enums import AIState
 
 
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
 class FakeMessage:
     def __init__(self) -> None:
         self.answers: list[str] = []
         self.photos: list[str] = []
 
-    async def answer(self, text: str, *args, **kwargs) -> None:
+    async def answer(self, text: str, *_args, **_kwargs) -> None:
         self.answers.append(text)
 
-    async def answer_photo(self, photo, *args, **kwargs) -> None:
+    async def answer_photo(self, photo, *_args, **_kwargs) -> None:
         self.photos.append(str(photo))
 
 
@@ -30,7 +35,7 @@ class FakeState:
         self.state = state
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_command_start_under_load(monkeypatch):
     """
     🔥 Нагрузочный тест command_handler:
@@ -48,6 +53,7 @@ async def test_command_start_under_load(monkeypatch):
         message = FakeMessage()
         state = FakeState()
         user = SimpleNamespace(
+            tg_id=1,
             source="default",
             fullname="Test User",
             is_context_added=True,

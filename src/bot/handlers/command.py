@@ -2,35 +2,29 @@ from asyncio import sleep
 from datetime import UTC, datetime, timedelta
 from html import escape
 from logging import getLogger
-from random import randint
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, FSInputFile, Message
-from aiogram.utils.chat_action import ChatActionSender
+from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from dateutil.relativedelta import relativedelta
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
 from bot.config import Settings
-from bot.controllers.statistics import (
-    build_stats_snapshot,
-    list_stat_log_paths,
-    iter_stat_events,
-    build_stat_message,
-)
 from bot.controllers.base import imitate_typing
+from bot.controllers.statistics import (
+    build_stat_message,
+    build_stats_snapshot,
+    iter_stat_events,
+    list_stat_log_paths,
+)
 from bot.controllers.user import ask_next_question, get_user_counter, has_active_subscription
 from bot.internal.enums import AIState, Form, SupportState
-from bot.internal.keyboards import support_kb, support_request_kb
-from bot.internal.lexicon import replies, support_text, WELCOME_BY_SOURCE
-from database.models import User, UserCounters
-from sqlalchemy import select
+from bot.internal.keyboards import share_contact_kb, support_kb, support_request_kb
+from bot.internal.lexicon import WELCOME_BY_SOURCE, replies, support_text
 from bot.onboarding.start_variants import ONBOARDING_VARIANTS
-from dateutil.relativedelta import relativedelta
-
-
-
-
+from database.models import User, UserCounters
 
 router = Router()
 logger = getLogger(__name__)
@@ -46,7 +40,7 @@ async def restore_support_context(state: FSMContext, support_context: dict) -> N
 
 
 @router.message(Command("start", "support", "share", "dialog"))
-async def command_handler(
+async def command_handler( # noqa: PLR0913 C901 PLR0912
     message: Message,
     command: CommandObject,
     user: User,
@@ -113,7 +107,7 @@ async def command_handler(
                 Form=Form,
                 AIState=AIState,
             )
-            '''start_file_path = "src/bot/data/start.png"
+            """start_file_path = "src/bot/data/start.png"
             await message.answer_photo(
               FSInputFile(path=start_file_path) )
             async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
@@ -133,7 +127,7 @@ async def command_handler(
                     db_session.add(user)
                     await db_session.flush()
                     await imitate_typing()
-                    await state.set_state(AIState.IN_AI_DIALOG) '''
+                    await state.set_state(AIState.IN_AI_DIALOG) """
 
         case "support":
             picture = FSInputFile(path="src/bot/data/with_book.png")
@@ -155,7 +149,7 @@ async def command_handler(
                     reply_markup=support_kb(is_subscribed=False),
                 )
         case "share":
-            await message.answer("Выберите, кому хотите подарить подписку", reply_markup=contact_kb)
+            await message.answer("Выберите, кому хотите подарить подписку", reply_markup=share_contact_kb)
         case "dialog":
             await state.set_state(AIState.IN_AI_DIALOG)
             has_full_access = user.tg_id in settings.bot.ADMINS or has_active_subscription(user, datetime.now(UTC))
@@ -210,7 +204,7 @@ async def receive_support_request(
         logger.error("SUPPORT_CHAT_ID is not configured, support request from user %s was not forwarded", user.tg_id)
         await message.answer("⚠️ Поддержка временно недоступна. Попробуйте позже.")
         return
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     username = f"@{user.username}" if user.username else "без username"
     request_text = escape(message.text)
     try:
@@ -247,7 +241,6 @@ async def receive_support_request_non_text(message: Message) -> None:
 async def stats_handler(
     message: Message,
     settings: Settings,
-    db_session: AsyncSession,
 ) -> None:
     if message.from_user.id not in settings.bot.ADMINS:
         await message.answer("❌ У вас нет прав на просмотр статистики")
@@ -319,7 +312,7 @@ async def broadcast_handler(
             await message.bot.send_message(user_id, text)
             sent += 1
             await sleep(0.05)
-        except Exception:
+        except Exception: # noqa: BLE001
             failed += 1
 
     await message.answer(
@@ -367,7 +360,7 @@ async def broadcast_photo_handler(
             )
             sent += 1
             await sleep(0.05)
-        except Exception:
+        except Exception: # noqa: BLE001
             failed += 1
 
     await message.answer(

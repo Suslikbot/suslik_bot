@@ -24,11 +24,13 @@ from database.database_connector import DatabaseConnector
 from database.models import Payment
 
 logger = logging.getLogger(__name__)
+SUBSCRIPTION_EXPIRES_SOON_DAYS = 2
+SUBSCRIPTION_EXPIRES_TODAY_DAYS = 0
 
 
 def escape_markdown_v2(string: str) -> str:
     escape_chars = r"_*[]()~`>#+-=|{}.!"
-    return re.sub(r"([%s])" % re.escape(escape_chars), r"\\\1", string)
+    return re.sub(rf"([{re.escape(escape_chars)}])", r"\\\1", string)
 
 
 def escape_stars(s):
@@ -62,7 +64,7 @@ def refactor_string(string: str) -> str:
 
 
 async def imitate_typing(delay_from=1, delay_to=3):
-    await sleep(randint(delay_from, delay_to))
+    await sleep(randint(delay_from, delay_to)) # noqa: S311
 
 
 def get_seconds_until_starting_mark(sttngs: Settings, utcnow):
@@ -72,7 +74,7 @@ def get_seconds_until_starting_mark(sttngs: Settings, utcnow):
     return (mark - utcnow).total_seconds()
 
 
-async def daily_routine(
+async def daily_routine( # noqa: C901
     bot: Bot,
     sttngs: Settings,
     dispatcher: Dispatcher,
@@ -94,7 +96,7 @@ async def daily_routine(
                     data = await fsm_context.get_data()
                     notified_days = data.get("notified_days", [])
                     if days_left in (2, 0) and days_left not in notified_days:
-                        if days_left == 2:
+                        if days_left == SUBSCRIPTION_EXPIRES_SOON_DAYS:
                             await bot.send_message(
                                 chat_id=user.tg_id,
                                 text=support_text["subscription_2_days_left"],

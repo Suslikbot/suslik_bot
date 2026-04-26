@@ -1,16 +1,15 @@
-from collections.abc import Awaitable, Callable
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware
 from aiogram.types import Message
-
-from bot.controllers.user import add_user_to_db, get_user_from_db_by_tg_id
 from asyncpg.exceptions import UniqueViolationError
 from sqlalchemy.exc import IntegrityError
 
-logger = logging.getLogger(__name__)
+from bot.controllers.user import add_user_to_db, get_user_from_db_by_tg_id
 
+logger = logging.getLogger(__name__)
 class AuthMiddleware(BaseMiddleware):
     async def __call__(
         self,
@@ -27,7 +26,7 @@ class AuthMiddleware(BaseMiddleware):
             source = None
             if event.text and event.text.startswith("/start"):
                 parts = event.text.split(maxsplit=1)
-                if len(parts) == 2:
+                if len(parts) > 1:
                     source = parts[1].strip()
             try:
                 user = await add_user_to_db(event.from_user, db_session, source)

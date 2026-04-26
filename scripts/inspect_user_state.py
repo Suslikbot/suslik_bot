@@ -167,7 +167,7 @@ def parse_args() -> argparse.Namespace:
 async def main() -> None:
     args = parse_args()
     snapshot = await build_snapshot(args.tg_id)
-    print(json.dumps(asdict(snapshot), ensure_ascii=False, indent=2, default=str))
+    print(json.dumps(asdict(snapshot), ensure_ascii=False, indent=2, default=str)) # noqa: T201
 
 
 if __name__ == "__main__":

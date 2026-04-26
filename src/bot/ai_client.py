@@ -1,14 +1,17 @@
 import logging
 from asyncio import sleep
 from base64 import b64encode
+from http import HTTPStatus
 
 import openai
 from aiogram.types import Message
-from database.models import User
 from openai import AsyncOpenAI, BadRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from database.models import User
+
 logger = logging.getLogger(__name__)
+
 
 
 
@@ -66,7 +69,7 @@ class AIClient:
             """Responses API is stateless per request and does not expose run polling."""
 
 
-    async def _safe_create_message(
+    async def _safe_create_message( # noqa: PLR0913
         self,
         response_id: str | None,
         content: str | list[dict[str, object]],
@@ -96,7 +99,7 @@ class AIClient:
                 "external api response",
                 extra={"provider": "openai", "operation": "responses.create", "response_id": response.id},
             )
-            
+
         except BadRequestError as e:
             if "previous_response_id" in str(e):
                 logger.warning("Invalid response chain (retry=%s)", retry)
@@ -135,7 +138,7 @@ class AIClient:
         return text_response, response.id
 
 
-    async def get_response(
+    async def get_response( # noqa: PLR0913
         self,
         ai_thread_id: str | None,
         text: str,
@@ -151,7 +154,7 @@ class AIClient:
         response_text, new_response_id = await self._run_thread_and_get_response(response_id)
         return response_text, new_response_id
 
-    async def get_response_with_image(
+    async def get_response_with_image( # noqa: PLR0913
         self,
         thread_id: str | None,
         text: str,
@@ -176,13 +179,14 @@ class AIClient:
                 return None, thread_id
 
             response_text, new_response_id = await self._run_thread_and_get_response(response_id)
-            return response_text, new_response_id
 
         except BadRequestError as e:
-            logger.exception("OpenAI API Error: %s", e)
-            if e.status_code == 429:
+            logger.exception("OpenAI API Error")
+            if e.status_code == HTTPStatus.TOO_MANY_REQUESTS:
                 return "Превышены лимиты запросов. Пожалуйста, попробуйте позже.", thread_id
             return "Ошибка при обработке изображения. Убедитесь, что файл корректного формата.", thread_id
+        else:
+            return response_text, new_response_id
 
 
     async def apply_context_to_thread(
@@ -190,6 +194,7 @@ class AIClient:
         user: User,
         context: str,
         db_session: AsyncSession,
+        *,
         use_existing_thread: bool = False,
     ) -> str:
         responses_api = self._get_responses_api()

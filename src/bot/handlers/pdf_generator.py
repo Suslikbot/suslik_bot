@@ -1,14 +1,13 @@
 from pathlib import Path
 
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
-
-# ─── PATHS (НЕ ТРОГАЕМ) ────────────────────────────────────
+# ─── PATHS (KEEP AS IS) ────────────────────────────────────
 
 BASE_DIR = Path(__file__).resolve().parents[1]  # src/bot
 ASSETS_DIR = BASE_DIR / "assets"
@@ -92,8 +91,8 @@ def generate_plan_pdf(
 
     lines = response_text.splitlines()
 
-    for line in lines:
-        line = line.strip()
+    for raw_line in lines:
+        line = raw_line.strip()
 
         if not line:
             flowables.append(Spacer(1, 6))
@@ -122,7 +121,7 @@ def generate_plan_pdf(
 
     # ─── BACKGROUND ────────────────────────────────────────
 
-    def draw_background(canvas, doc):
+    def draw_background(canvas):
         if BG_IMAGE_PATH.exists():
             canvas.drawImage(
                 str(BG_IMAGE_PATH),

@@ -1,6 +1,7 @@
 import logging
 import traceback
 from html import escape
+
 import aiogram
 from aiogram import Router
 from aiogram.types import ErrorEvent
@@ -28,5 +29,5 @@ async def error_handler(error_event: ErrorEvent, bot: aiogram.Bot, settings: Set
     logging.exception("errors", exc_info=exc_info, extra={"error_type": type(exc_info).__name__})
     try:
         await bot.send_message(settings.bot.ADMINS[0], error_message)
-    except Exception as e:
-        logging.exception(f"Failed to send error message to admin: {e}")
+    except Exception:
+        logging.exception("Failed to send error message to admin")

@@ -116,6 +116,4 @@ async def get_all_users_with_active_subscription(
 def check_action_limit(user: BotUser, settings: Settings) -> bool:
     if user.tg_id in settings.bot.ADMINS:
         return True
-    if not user.is_subscribed and user.action_count >= settings.bot.ACTIONS_THRESHOLD:
-        return False
-    return True
+    return user.is_subscribed or user.action_count < settings.bot.ACTIONS_THRESHOLD

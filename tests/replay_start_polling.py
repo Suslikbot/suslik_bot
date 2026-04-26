@@ -1,15 +1,16 @@
 import asyncio
 import random
 import time
+from collections.abc import AsyncIterator
 from typing import Any
-from typing import Any, AsyncIterator
-from aiogram.client.session.base import BaseSession
+
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.base import BaseSession
 from aiogram.enums import ChatType, ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
-from aiogram.types import Chat, Message, Update, User as TgUser
+from aiogram.types import Chat, Message, Update
+from aiogram.types import User as TgUser
 from redis.asyncio import Redis
 
 from bot.config import get_settings
@@ -26,20 +27,20 @@ from database.database_connector import get_db
 class DummySession(BaseSession):
     async def make_request(
         self,
-        bot,
-        method,
-        timeout: Any = None,
+        _bot,
+        _method,
+        _timeout: Any = None,
     ) -> Any:
         # Имитируем успешный ответ Telegram API
         return {"ok": True, "result": None}
 
+
     async def stream_content(
         self,
-        url: str,
-        timeout: int | None = None,
-        chunk_size: int = 65536,
+        _url: str,
+        _timeout: int | None = None,
+        _chunk_size: int = 65536,
     ) -> AsyncIterator[bytes]:
-        # Файлы мы не скачиваем — просто пустой генератор
         if False:
             yield b""
 
@@ -48,7 +49,7 @@ class DummySession(BaseSession):
 
 def make_message(user_id: int, text: str) -> Message:
     return Message(
-        message_id=random.randint(1, 10_000_000),
+        message_id=random.randint(1, 10_000_000), # noqa: S311
         date=int(time.time()),
         chat=Chat(id=user_id, type=ChatType.PRIVATE),
         from_user=TgUser(
@@ -64,7 +65,7 @@ def make_message(user_id: int, text: str) -> Message:
 
 async def feed(dp: Dispatcher, bot: Bot, user_id: int, text: str) -> None:
     msg = make_message(user_id, text)
-    update = Update(update_id=random.randint(1, 10_000_000), message=msg)
+    update = Update(update_id=random.randint(1, 10_000_000), message=msg) # noqa: S311
     await dp.feed_update(bot=bot, update=update)
 
 
@@ -117,7 +118,7 @@ def build_dispatcher_and_bot() -> tuple[Dispatcher, Bot]:
 
 async def scenario_deeplink_then_start(dp: Dispatcher, bot: Bot, user_id: int) -> None:
     await feed(dp, bot, user_id, "/start event")
-    await asyncio.sleep(random.uniform(5, 20))
+    await asyncio.sleep(random.uniform(5, 20)) # noqa: S311
     await feed(dp, bot, user_id, "/start")
 
 

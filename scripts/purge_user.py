@@ -100,12 +100,12 @@ async def main() -> None:
     await clear_fsm(args.tg_id, settings)
     deleted = await purge_postgres(args.tg_id, settings)
 
-    print("Purge completed")
-    print(f"tg_id: {args.tg_id}")
-    print("deleted:")
-    print("- redis_fsm_state_and_data")
-    print(f"- one_time_purchases: {deleted['one_time_purchases']}")
-    print(f"- users: {deleted['users']} (cascade removes user_counters, payments, plant_analyses)")
+    print("Purge completed") # noqa: T201
+    print(f"tg_id: {args.tg_id}") # noqa: T201
+    print("deleted:") # noqa: T201
+    print("- redis_fsm_state_and_data") # noqa: T201
+    print(f"- one_time_purchases: {deleted['one_time_purchases']}") # noqa: T201
+    print(f"- users: {deleted['users']} (cascade removes user_counters, payments, plant_analyses)") # noqa: T201
 
 
 if __name__ == "__main__":

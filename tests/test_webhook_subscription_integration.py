@@ -6,6 +6,7 @@ import pytest
 from bot.internal.enums import PaidEntity
 from webapp import webhook as webhook_module
 
+OK_STATUS = 200
 
 @pytest.fixture
 def anyio_backend() -> str:
@@ -89,9 +90,9 @@ async def test_successful_payment_opens_access_and_duplicate_is_idempotent(monke
         },
     }
 
-    monkeypatch.setattr(webhook_module, "Redis", lambda *args, **kwargs: object())
+    monkeypatch.setattr(webhook_module, "Redis", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(webhook_module, "RedisStorage", lambda *_: object())
-    monkeypatch.setattr(webhook_module, "FSMContext", lambda *args, **kwargs: FakeFSMContext())
+    monkeypatch.setattr(webhook_module, "FSMContext", lambda *_args, **_kwargs: FakeFSMContext())
     monkeypatch.setattr(webhook_module, "FSInputFile", lambda path: path)
     async def fake_get_payment_from_db(*_args, **_kwargs):
         return payment
@@ -109,8 +110,8 @@ async def test_successful_payment_opens_access_and_duplicate_is_idempotent(monke
 
     second_response = await webhook_module.yookassa_webhook(request=request, bot=bot, settings=settings, db_session=db_session)
 
-    assert first_response.status_code == 200
-    assert second_response.status_code == 200
+    assert first_response.status_code == OK_STATUS
+    assert second_response.status_code == OK_STATUS
 
     assert user.is_subscribed is True
     assert user.expired_at is not None

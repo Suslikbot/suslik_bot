@@ -1,32 +1,28 @@
 # start_variants.py
 
-from random import randint
 from asyncio import sleep
-from aiogram.types import FSInputFile
-from aiogram.utils.chat_action import ChatActionSender
-from bot.controllers.onboarding_log import log_onboarding_step
-from aiogram.types import (
-    ReplyKeyboardMarkup,
-    KeyboardButton
-)
 from logging import getLogger
+from random import randint
 
 from aiogram import Router
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.utils.chat_action import ChatActionSender
+
+from bot.controllers.onboarding_log import log_onboarding_step
+
 router = Router()
 logger = getLogger(__name__)
 
-async def onboarding_1(
+async def onboarding_1(  # noqa: PLR0913
     message,
     state,
     user,
     db_session,
-    settings,
     replies,
     ask_next_question,
     imitate_typing,
-    Form,
-    AIState,
+    Form, # noqa: N803
+    AIState, # noqa: N803
 ):
     start_file_path = "src/bot/data/start.png"
 
@@ -40,7 +36,7 @@ async def onboarding_1(
             await sleep(1)
             await message.answer(replies[0].format(fullname=user.fullname))
 
-            random_index = randint(0, 9)
+            random_index = randint(0, 9) # noqa: S311
             await state.update_data(question_index=random_index)
 
             await imitate_typing()
@@ -64,14 +60,8 @@ async def onboarding_1(
 async def onboarding_2(
     message,
     state,
-    user,
-    db_session,
-    settings,
-    replies,
-    ask_next_question,
     imitate_typing,
-    Form,
-    AIState,
+    AIState, # noqa: N803
 ):
     await message.answer("👋 Привет! Начнём по-другому")
 
@@ -79,17 +69,13 @@ async def onboarding_2(
 
     await state.set_state(AIState.IN_AI_DIALOG)
 
-async def onboarding_3(
+async def onboarding_3( # noqa: PLR0913
     message,
     state,
     user,
-    db_session,
     settings,
-    replies,
-    ask_next_question,
     imitate_typing,
-    Form,
-    AIState,
+    AIState, # noqa: N803
 ):
     # await state.clear()
     text = (

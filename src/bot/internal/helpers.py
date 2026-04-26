@@ -1,17 +1,18 @@
-import logging.config
 import json
+import logging.config
 import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from pydantic_settings import SettingsConfigDict
-from bot.log_context import LogContextFilter
+
 from bot.internal.enums import Stage
+from bot.log_context import LogContextFilter
 
 
 class CustomFormatter(logging.Formatter):
-    def formatTime(self, record, datefmt=None):
+    def formatTime(self, record, datefmt=None):  # noqa: N802
         ct = datetime.fromtimestamp(record.created).astimezone()
         if datefmt:
             base_time = ct.strftime("%d.%m.%Y %H:%M:%S")
@@ -21,7 +22,7 @@ class CustomFormatter(logging.Formatter):
         return super().formatTime(record, datefmt)
 
 class JsonFormatter(logging.Formatter):
-    def formatTime(self, record, datefmt=None):
+    def formatTime(self, record, _datefmt=None):  # noqa: N802
         ct = datetime.fromtimestamp(record.created).astimezone()
         return ct.isoformat(timespec="milliseconds")
 

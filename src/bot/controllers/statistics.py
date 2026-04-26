@@ -1,10 +1,13 @@
 from __future__ import annotations
+
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 STAT_PREFIX = "STAT|"
 STAT_LOG_NAME = "suslik_robot"
@@ -50,7 +53,7 @@ def list_stat_log_paths() -> list[Path]:
     root_log = Path(base_name)
     if root_log.exists():
         paths.append(root_log)
-        paths.extend(sorted(Path(".").glob(f"{base_name}.*")))
+        paths.extend(sorted(Path().glob(f"{base_name}.*")))
     unique_paths = {path.resolve(): path for path in paths}
     return sorted(unique_paths.values())
 
@@ -63,7 +66,11 @@ def _parse_timestamp(line: str) -> tuple[datetime | None, str]:
     try:
         for pattern in STAT_LOG_PATTERNS:
             try:
-                return datetime.strptime(timestamp_str, pattern), message.strip()
+                if "%z" in pattern:
+                    parsed = datetime.strptime(timestamp_str, pattern)  # noqa: DTZ007
+                else:
+                    parsed = datetime.strptime(timestamp_str, pattern).replace(tzinfo=UTC)
+                return parsed, message.strip()
             except ValueError:
                 continue
     except ValueError:
@@ -130,7 +137,7 @@ def _is_payment_success(message: str) -> bool:
 def _is_diagnosis_result(message: str) -> bool:
     return any(marker in message for marker in LEGACY_DIAGNOSIS_MARKERS)
 
-def iter_stat_events(paths: Iterable[Path]) -> list[tuple[datetime, str]]:
+def iter_stat_events(paths: Iterable[Path]) -> list[tuple[datetime, str]]: # noqa: C901
     events: list[tuple[datetime, str]] = []
     seen_photo_users: set[int] = set()
     for path in paths:
@@ -165,7 +172,6 @@ def build_stats_snapshot(
     start_at: datetime | None,
     end_at: datetime | None,
 ) -> StatsSnapshot:
-    snapshot = StatsSnapshot()
     counts = {
         "Start_bot": 0,
         "Photo_upload": 0,

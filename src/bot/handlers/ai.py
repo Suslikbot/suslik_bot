@@ -1,5 +1,6 @@
+from http import HTTPStatus
 from logging import getLogger
-from bot.controllers.statistics import build_stat_message
+
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
@@ -17,6 +18,7 @@ from bot.controllers.base import (
 )
 from bot.controllers.dialog_log import log_bot_response, log_user_request
 from bot.controllers.gpt import get_or_create_ai_thread
+from bot.controllers.statistics import build_stat_message
 from bot.controllers.user import check_action_limit
 from bot.controllers.voice import process_voice
 
@@ -35,7 +37,7 @@ async def increment_action_count_if_needed(user: User, settings: Settings, db_se
         db_session.add(user)
         await db_session.flush()
 
-def split_markdown_message(text: str, limit: int = 3500) -> list[str]:
+def split_markdown_message(text: str, limit: int = 3500) -> list[str]: # noqa: C901
     """
     Split MarkdownV2 text into chunks below limit, trying to cut on paragraph/line boundaries.
     Avoid cutting inside italic spans (*...*) and avoid leaving trailing backslashes.
@@ -43,7 +45,7 @@ def split_markdown_message(text: str, limit: int = 3500) -> list[str]:
     chunks: list[str] = []
     current: str = ""
 
-    def find_split_position(block: str) -> int:
+    def find_split_position( block: str) -> int: # noqa: C901
         if len(block) <= limit:
             return len(block)
 
@@ -67,10 +69,7 @@ def split_markdown_message(text: str, limit: int = 3500) -> list[str]:
             split_at = limit
 
         def inside_italic(pos: int) -> bool:
-            for s, e in italic_spans:
-                if s < pos < e:
-                    return True
-            return False
+            return any(s < pos < e for s, e in italic_spans)
 
         if inside_italic(split_at):
             # move split before the italic span
@@ -109,7 +108,7 @@ def split_markdown_message(text: str, limit: int = 3500) -> list[str]:
 
     return chunks
 
-'''
+"""
 @router.message(AIState.IN_AI_DIALOG, F.photo)
 async def ai_assistant_photo_handler(
     message: Message,
@@ -155,7 +154,7 @@ async def ai_assistant_photo_handler(
     if not user.is_subscribed and user.tg_id not in settings.bot.ADMINS:
         user.action_count += 1
     db_session.add(user)
-'''
+"""
 
 @router.message(AIState.IN_AI_DIALOG, F.voice)
 async def ai_assistant_voice_handler(
@@ -199,7 +198,7 @@ async def ai_assistant_voice_handler(
 
 
 @router.message(AIState.IN_AI_DIALOG, F.photo)
-async def ai_assistant_photo_handler(
+async def ai_assistant_photo_handler(  # noqa: PLR0913, C901
     message: Message,
     state: FSMContext,
     openai_client: AIClient,
@@ -225,19 +224,18 @@ async def ai_assistant_photo_handler(
             "Пожалуйста, отправляйте только по одному изображению за раз, чтобы я мог корректно ответить."
         )
         return
-    if user.tg_id not in settings.bot.ADMINS:
-        if not await validate_image_limit(user.tg_id, settings, db_session):
-            await message.answer_photo(
-                photo=FSInputFile(path="src/bot/data/not_happy.png"),
-                caption=replies["photo_limit_exceeded"],
-                reply_markup=refresh_pictures_kb(),
-            )
-            await message.forward(settings.bot.CHAT_LOG_ID)
-            await message.bot.send_message(
-                settings.bot.CHAT_LOG_ID,
-                replies["pictures_limit_exceeded_log"].format(username=user.username),
-            )
-            return
+    if user.tg_id not in settings.bot.ADMINS and not await validate_image_limit(user.tg_id, settings, db_session):
+        await message.answer_photo(
+            photo=FSInputFile(path="src/bot/data/not_happy.png"),
+            caption=replies["photo_limit_exceeded"],
+            reply_markup=refresh_pictures_kb(),
+        )
+        await message.forward(settings.bot.CHAT_LOG_ID)
+        await message.bot.send_message(
+            settings.bot.CHAT_LOG_ID,
+            replies["pictures_limit_exceeded_log"].format(username=user.username),
+        )
+        return
     thread_id = await get_or_create_ai_thread(user, openai_client, db_session)
     await message.forward(settings.bot.CHAT_LOG_ID)
     user_text = (
@@ -291,23 +289,23 @@ async def ai_assistant_photo_handler(
                 await msg.forward(settings.bot.CHAT_LOG_ID)
 
         except BadRequestError as e:
-            logger.exception(f"OpenAI API Error: {e}")
-            if e.status_code == 429:
+            logger.exception("OpenAI API Error")
+            if e.status_code == HTTPStatus.TOO_MANY_REQUESTS:
                 await message.answer("Превышены лимиты запросов. Пожалуйста, попробуйте позже.")
             else:
                 await message.answer(
                     "Ошибка при обработке изображения. "
                     "Убедитесь, что изображение корректного формата (jpg, png) и попробуйте снова."
                 )
-        except Exception as e:
-            logger.exception(f"Unexpected error: {e}")
+        except Exception:
+            logger.exception("Unexpected error")
             await message.answer("Произошла непредвиденная ошибка. Пожалуйста, попробуйте позже.")
 
     await increment_action_count_if_needed(user, settings, db_session)
 
 
 @router.message(AIState.IN_AI_DIALOG, F.text)
-async def ai_assistant_text_handler(
+async def ai_assistant_text_handler( # noqa: PLR0913
     message: Message,
     openai_client: AIClient,
     user: User,

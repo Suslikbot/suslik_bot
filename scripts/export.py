@@ -1,12 +1,15 @@
-import redis
 import json
+import os
+from pathlib import Path
+
+import redis
 
 r = redis.Redis(
-    host="redis-18396.c13.us-east-1-3.ec2.cloud.redislabs.com",
-    port=18396,
-    username="default",
-    password="o0vbOITUgcYpHP7vSrictJvCjKnSuBS3",
-    decode_responses=True
+    host=os.environ["REDIS_HOST"],
+    port=int(os.environ.get("REDIS_PORT", "6379")),
+    username=os.environ.get("REDIS_USERNAME", "default"),
+    password=os.environ["REDIS_PASSWORD"],
+    decode_responses=True,
 )
 
 data = {}
@@ -14,10 +17,10 @@ data = {}
 for key in r.scan_iter("*"):
     try:
         data[key] = r.get(key)
-    except:
+    except redis.ResponseError:
         data[key] = "NON-STRING"
 
-with open("dump2.json", "w") as f:
+with Path("dump2.json").open("w", encoding="utf-8") as f:
     json.dump(data, f, indent=2)
 
-print("Export complete")
+print("Export complete") # noqa: T201

@@ -27,10 +27,11 @@ async def convert_to_mp3(audio: bytes) -> bytes:
         stdout, stderr = await process.communicate(input=audio)
         if process.returncode != 0:
             raise RuntimeError(f"FFmpeg failed: {stderr.decode()}")
-        return stdout
-    except FileNotFoundError:
+    except FileNotFoundError as err:
         logging.exception("FFmpeg is not installed or not found in PATH.")
-        raise RuntimeError("FFmpeg is not installed or not found in PATH.")
+        raise RuntimeError("FFmpeg is not installed or not found in PATH.") from err
+    else:
+        return stdout
 
 
 async def process_voice(message: Message, openai_client: AIClient) -> str | None:
@@ -49,16 +50,15 @@ async def process_voice(message: Message, openai_client: AIClient) -> str | None
         )
         return transcription_response.strip()
 
-    except Exception as e:
-        logging.exception(f"Unexpected transcription error: {e}")
+    except Exception:
+        logging.exception("Unexpected transcription error")
         await message.reply("Произошла непредвиденная ошибка при распознавании. Пожалуйста, попробуйте позже.")
         return None
 
 
 async def extract_text_from_message(message: Message, openai_client: AIClient) -> str | None:
     if message.voice:
-        transcription = await process_voice(message, openai_client)
-        return transcription
+        return await process_voice(message, openai_client)
     if message.text:
         return message.text.strip()
     await message.reply("Пожалуйста, ответьте текстом или голосовым сообщением.")

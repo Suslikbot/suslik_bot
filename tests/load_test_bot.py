@@ -1,10 +1,12 @@
 import asyncio
 import os
 import time
+
 import httpx
 
-BOT_TOKEN = "8502985343:AAFdRpNIKwmvjDW0NjDu5Gz7adN0tJ2iUws"
-CHAT_ID = "-5032504117"
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+CHAT_ID = os.environ["CHAT_ID"]
+
 
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
@@ -34,7 +36,7 @@ async def main(concurrency=10, total=100):
         await asyncio.gather(*(task(i) for i in range(total)))
 
     elapsed = time.time() - start
-    print(f"Sent {total} messages in {elapsed:.2f}s")
+    print(f"Sent {total} messages in {elapsed:.2f}s")  # noqa: T201
 
 
 if __name__ == "__main__":

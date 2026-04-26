@@ -1,11 +1,14 @@
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aiogram import BaseMiddleware
 
 from bot.config import get_settings
 from bot.internal.lexicon import replies
-from database.models import User
+
+if TYPE_CHECKING:
+    from database.models import User
+
 
 settings = get_settings()
 

@@ -1,3 +1,4 @@
+import re
 from logging import getLogger
 from random import choice
 
@@ -46,7 +47,7 @@ async def form_handler(
     db_session.add(user)
     await db_session.flush()
     data = await state.get_data()
-    question_index = data.get("question_index", choice(list(REACTIONS[field].keys())))
+    question_index = data.get("question_index", choice(list(REACTIONS[field].keys()))) # noqa: S311
     reaction = REACTIONS[field][question_index].format(**{field: user_answer})
 
     async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
@@ -193,13 +194,11 @@ async def on_successful_payment(
     logger.info(f"Successful gift subscription from {user.fullname} to {target_user.fullname}")
 
 
-import re
-
 def extract_health_score(text: str) -> int | None:
     """
     Ищет 'Health Score: ... X/10'
     """
-    match = re.search(r'(\d{1,2})/10', text)
+    match = re.search(r"(\d{1,2})/10", text)
     if not match:
         return None
     return int(match.group(1))

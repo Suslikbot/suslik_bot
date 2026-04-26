@@ -5,25 +5,29 @@ from bot.config import Settings
 from database.models import User
 
 
-async def log_onboarding_step( # noqa: PLR0913
+async def log_garden_action(  # noqa: PLR0913
     message: Message,
     state: FSMContext | None,
     user: User,
     settings: Settings,
-    step: str,
-    extra: str | None = None,
+    action: str,
+    plant_name: str | None = None,
+    details: str | None = None,
     user_message: str | None = None,
     bot_response: str | None = None,
 ) -> None:
     current_state = await state.get_state() if state else None
+    username = f"@{user.username}" if user.username else "without_username"
     lines = [
-        "🧭 onboarding_3",
-        f"user: {user.tg_id} ({user.fullname})",
-        f"step: {step}",
+        "🪴 garden",
+        f"user: {user.tg_id} ({user.fullname}) {username}",
+        f"action: {action}",
         f"state: {current_state or 'none'}",
     ]
-    if extra:
-        lines.append(f"extra: {extra}")
+    if plant_name:
+        lines.append(f"plant: {plant_name}")
+    if details:
+        lines.append(f"details: {details}")
     if user_message:
         lines.append(f"user_message: {user_message}")
     if bot_response:

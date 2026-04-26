@@ -32,7 +32,7 @@ async def test_update_user_expiration_creates_new_subscription_when_absent() -> 
     assert user.is_subscribed is True
     assert session.added == [user]
 
-    
+
 @pytest.mark.anyio
 async def test_update_user_expiration_extends_from_current_expired_at_when_active() -> None:
     session = FakeSession()

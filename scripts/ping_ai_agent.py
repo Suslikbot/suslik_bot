@@ -26,19 +26,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def wait_for_completion(client: AsyncOpenAI, thread_id: str, run_id: str, timeout: int) -> str:
-    loop = asyncio.get_running_loop()
-    started = loop.time()
-
-    while True:
-        run = await client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
-        if run.status in {"completed", "failed", "cancelled", "expired"}:
-            return run.status
-
-        if loop.time() - started > timeout:
-            raise TimeoutError(f"Run {run_id} did not complete within {timeout} seconds")
-
-        await asyncio.sleep(2)
+async def wait_for_completion(
+    client: AsyncOpenAI,
+    thread_id: str,
+    run_id: str,
+    timeout_seconds: int,
+) -> str:
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            while True:
+                run = await client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
+                if run.status in {"completed", "failed", "cancelled", "expired"}:
+                    return run.status
+                await asyncio.sleep(2)
+    except TimeoutError as err:
+        raise TimeoutError(f"Run {run_id} did not complete within {timeout_seconds} seconds") from err
 
 
 async def main() -> None:
@@ -73,8 +75,8 @@ async def main() -> None:
 
     messages = await client.beta.threads.messages.list(thread_id=thread.id, limit=1)
     answer = messages.data[0].content[0].text.value
-    print("Assistant reply:\n")
-    print(answer)
+    print("Assistant reply:\n") # noqa: T201
+    print(answer) # noqa: T201
 
 
 if __name__ == "__main__":

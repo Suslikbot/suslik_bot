@@ -1,4 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from bot.ai_client import AIClient
 from database.models import User
 

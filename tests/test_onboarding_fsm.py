@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
-from datetime import datetime
+from unittest.mock import AsyncMock
 
 import pytest
-from unittest.mock import AsyncMock
 
 from bot.handlers import command as command_module
 from bot.handlers import onboarding_callbacks as onboarding_module
 from bot.internal.enums import AIState, Form
 
-
+USER_ACTION_COUNT = 5
+TEST_ACTION_COUNT = 2
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
@@ -41,10 +42,10 @@ class FakeMessage:
         self.bot = SimpleNamespace()
         self.chat = SimpleNamespace(id=1)
 
-    async def answer(self, text: str, *args, **kwargs) -> None:
+    async def answer(self, text: str, *_args, **_kwargs) -> None:
         self.answers.append(text)
 
-    async def edit_reply_markup(self, *args, **kwargs) -> None:
+    async def edit_reply_markup(self, *_args, **_kwargs) -> None:
         self.reply_markup_cleared = True
 
 
@@ -54,7 +55,7 @@ class FakeCallback:
         self.message = message
         self.answered = False
 
-    async def answer(self, *args, **kwargs) -> None:
+    async def answer(self, *_args, **_kwargs) -> None:
         self.answered = True
 
 
@@ -104,7 +105,7 @@ class FakeDBSession:
         ),
     ],
 )
-async def test_onboarding_fsm_transitions_table(
+async def test_onboarding_fsm_transitions_table( # noqa: PLR0913
     monkeypatch,
     node,
     handler,
@@ -117,12 +118,16 @@ async def test_onboarding_fsm_transitions_table(
 
     class _TestDatetime:
         @classmethod
-        def utcnow(cls):
-            return datetime(2026, 1, 1, 12, 0, 0)
+        def now(cls, _tz=None):
+            return datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    class _FakeTask:
+        def add_done_callback(self, _callback) -> None:
+            return None
 
     def _consume_task(coro):
         coro.close()
-        return None
+        return _FakeTask()
 
     monkeypatch.setattr(onboarding_module, "datetime", _TestDatetime)
     monkeypatch.setattr(onboarding_module.asyncio, "create_task", _consume_task)
@@ -230,7 +235,7 @@ async def test_skip_callback_with_ai_thread_and_no_client(monkeypatch) -> None:
     )
 
     assert user.ai_thread == "thread-1"
-    assert user.action_count == 2
+    assert user.action_count == TEST_ACTION_COUNT
     assert state.state == AIState.IN_AI_DIALOG
     assert db_session.commits == 1
 
@@ -254,7 +259,7 @@ async def test_pay_callbacks_with_ai_thread_and_no_client(monkeypatch, callback_
     )
 
     assert user.ai_thread == "thread-1"
-    assert user.action_count == 5
+    assert user.action_count == USER_ACTION_COUNT
     assert db_session.commits == 1
 
 

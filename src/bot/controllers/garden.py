@@ -1,11 +1,9 @@
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import GardenPlant, GardenPlantHistory, GardenPlantPhoto
-
-
 
 DEFAULT_WATERING_INTERVAL_DAYS = 7
 DEFAULT_PLANT_STATUS = "здоров"
@@ -13,6 +11,29 @@ DEFAULT_PLANT_STATUS = "здоров"
 GARDEN_STATUS_CRITICAL = "критическое"
 GARDEN_STATUS_NEEDS_HELP = "нуждается в помощи"
 GARDEN_STATUS_HEALTHY = "здоров"
+
+
+def resolve_next_watering_at(
+    last_watered_at: datetime,
+    watering_interval_days: int,
+    *,
+    now: datetime | None = None,
+) -> datetime:
+    if now is None:
+        now = datetime.now(UTC)
+    scheduled_at = last_watered_at + timedelta(days=watering_interval_days)
+    return max(scheduled_at, now)
+
+
+def was_watered_today(plant: GardenPlant, *, now: datetime | None = None) -> bool:
+    if plant.last_watered_at is None:
+        return False
+    if now is None:
+        now = datetime.now(UTC)
+    last_watered_at = plant.last_watered_at
+    if last_watered_at.tzinfo is None:
+        last_watered_at = last_watered_at.replace(tzinfo=UTC)
+    return last_watered_at.date() == now.date()
 
 
 async def list_user_plants(user_tg_id: int, db_session: AsyncSession) -> list[GardenPlant]:
@@ -62,6 +83,7 @@ async def add_plant_photo(
     file_path: str,
     db_session: AsyncSession,
     analysis: str | None = None,
+    *,
     is_primary: bool = True,
 ) -> GardenPlantPhoto:
     if is_primary:
@@ -83,6 +105,16 @@ async def add_plant_photo(
     db_session.add(photo)
     await db_session.flush()
     return photo
+
+
+async def get_primary_plant_photo(plant_id: int, db_session: AsyncSession) -> GardenPlantPhoto | None:
+    result = await db_session.execute(
+        select(GardenPlantPhoto)
+        .where(GardenPlantPhoto.plant_id == plant_id)
+        .order_by(desc(GardenPlantPhoto.is_primary), desc(GardenPlantPhoto.created_at))
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 async def rename_plant(plant: GardenPlant, new_name: str, db_session: AsyncSession) -> GardenPlant:

@@ -1,11 +1,14 @@
 from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
 
 from aiogram import Bot
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import Settings
-from database.database_connector import DatabaseConnector
+
+if TYPE_CHECKING:
+    from database.database_connector import DatabaseConnector
 
 
 async def get_bot(request: Request) -> Bot:

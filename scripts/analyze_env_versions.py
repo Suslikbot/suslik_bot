@@ -53,10 +53,10 @@ def installed_version(name: str) -> str | None:
 
 
 def render_section(title: str, names: list[str], lock: dict[str, str]) -> None:
-    print(f"\n{title}")
-    print("-" * len(title))
-    print(f"{'package':30} {'installed':15} {'uv.lock':15} {'status'}")
-    print("-" * 75)
+    print(f"\n{title}") # noqa: T201
+    print("-" * len(title)) # noqa: T201
+    print(f"{'package':30} {'installed':15} {'uv.lock':15} {'status'}") # noqa: T201
+    print("-" * 75) # noqa: T201
     for name in sorted(set(names)):
         installed = installed_version(name)
         locked = lock.get(name)
@@ -69,15 +69,15 @@ def render_section(title: str, names: list[str], lock: dict[str, str]) -> None:
         else:
             status = "OK"
             installed_display = installed
-        print(f"{name:30} {installed_display:15} {(locked or '-'):15} {status}")
+        print(f"{name:30} {installed_display:15} {(locked or '-'):15} {status}") # noqa: T201
 
 
 def main() -> None:
     runtime, dev = load_pyproject_deps()
     lock = load_lock_versions()
 
-    print(f"Project root: {ROOT}")
-    print(f"Python: {md.version('pip') if installed_version('pip') else 'unknown'} (pip)")
+    print(f"Project root: {ROOT}") # noqa: T201
+    print(f"Python: {md.version('pip') if installed_version('pip') else 'unknown'} (pip)") # noqa: T201
 
     render_section("Runtime dependencies", runtime, lock)
     render_section("Dev dependencies", dev, lock)

@@ -19,6 +19,7 @@ class AIState(StatesGroup):
 class GardenState(StatesGroup):
     WAITING_ADD_PLANT_CHOICE = State()
     WAITING_NEW_PLANT_PHOTO = State()
+    WAITING_PLANT_PHOTO_UPDATE = State()
     WAITING_PLANT_NAME = State()
     WAITING_WATERING_INTERVAL_CONFIRM = State()
     WAITING_WATERING_INTERVAL_DAYS = State()
@@ -75,6 +76,8 @@ class GardenAction(StrEnum):
     CONFIRM_WATERING_YES = auto()
     CONFIRM_WATERING_CHANGE = auto()
     VIEW = auto()
+    VIEW_PHOTO = auto()
+    UPDATE_PHOTO = auto()
     WATERED = auto()
     SETTINGS = auto()
     TOGGLE_NOTIFICATIONS = auto()

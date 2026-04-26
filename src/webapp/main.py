@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from typing import cast
 
 import uvicorn
 from aiogram import Bot
@@ -36,7 +37,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-app.state: State  # type: ignore
+app.state = cast(State, app.state)
 
 
 setup_logs("yookassa_webhook", get_settings().bot.STAGE)
@@ -46,7 +47,7 @@ app.include_router(router, prefix="/webhook")
 
 def run_main():
     logging.info("webapp started")
-    uvicorn.run("webapp.main:app", host="0.0.0.0", port=8080)
+    uvicorn.run("webapp.main:app", host="127.0.0.1", port=8080)
 
 
 if __name__ == "__main__":
