@@ -23,6 +23,7 @@ async def onboarding_1(  # noqa: PLR0913
     imitate_typing,
     Form, # noqa: N803
     AIState, # noqa: N803
+    **_ignored,
 ):
     start_file_path = "src/bot/data/start.png"
 
@@ -62,6 +63,7 @@ async def onboarding_2(
     state,
     imitate_typing,
     AIState, # noqa: N803
+    **_ignored,
 ):
     await message.answer("👋 Привет! Начнём по-другому")
 
@@ -73,9 +75,11 @@ async def onboarding_3( # noqa: PLR0913
     message,
     state,
     user,
+    db_session,
     settings,
     imitate_typing,
     AIState, # noqa: N803
+    **_ignored,
 ):
     # await state.clear()
     text = (
@@ -93,6 +97,8 @@ async def onboarding_3( # noqa: PLR0913
         text = text,
         reply_markup=start_keyboard,
     )
+    db_session.add(user)
+    await db_session.flush()
     await state.update_data(wait_reason="onboarding_plant_photo")
     await state.set_state(AIState.WAITING_PLANT_PHOTO)
     await log_onboarding_step(
